@@ -7,9 +7,9 @@
 鉴权：所有请求头带 X-Control-Token。配置优先级（高→低）：
   --token / --base 参数 > 环境变量 REMOTE_TOKEN / REMOTE_SERVER >
   脚本同目录 config.local.json > 默认值。
-config.local.json 形如 {"server":"https://old-hub.example.com","token":"<token>"}，
+config.local.json 形如 {"server":"https://hub.example.com","token":"<token>"}，
 用于 exec 子进程不共享环境变量的场景（如 myclaw），配置一次后免参调用；该文件勿提交版本库。
-服务端默认 https://old-hub.example.com，请求路径 = base + /api/...。
+服务端默认 https://hub.example.com，请求路径 = base + /api/...。
 
 用法示例：
     python3 remote.py list
@@ -32,7 +32,7 @@ import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
 # 服务端默认对外前缀（Caddy 反代），可用 --base / REMOTE_SERVER 覆盖。
-DEFAULT_BASE = "https://old-hub.example.com"
+DEFAULT_BASE = "https://hub.example.com"
 # 服务端同步等待任务结果的超时为 15s，客户端 HTTP 超时放宽到 30s，
 # 以便能收到服务端返回的 {state: "timeout"} 响应而不是自己先超时。
 HTTP_TIMEOUT = 30

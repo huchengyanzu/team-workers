@@ -1,4 +1,4 @@
 {
-  "server": "https://old-hub.example.com",
+  "server": "https://hub.example.com",
   "token": "在此填入你的控制 token"
 }

@@ -1,5 +1,5 @@
 /* =============================================================================
- * theme.css — Nexus Remote 三页共用设计系统
+ * theme.css — team-workers 三页共用设计系统
  * 用途：为 login.html / admin.html / device.html 提供统一的设计 token 与组件样式。
  * 设计原则：现代、克制、专业；深蓝灰主色 + 青蓝强调色；柔和阴影、适度圆角。
  * 零外部依赖：系统字体栈，无 CDN / 外部字体；支持响应式与 prefers-color-scheme 暗色。

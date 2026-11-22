@@ -1,4 +1,4 @@
-# Nexus Remote · 远程设备控制平台
+# team-workers · 远程设备控制平台
 
 通过 WebSocket 长连接，让 AI Agent 在受控设备上执行命令、读写文件、管理设备。
 包含服务端、管理台、三端设备程序、Agent Skill 与部署脚本。

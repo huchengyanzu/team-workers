@@ -48,7 +48,7 @@ cp -R device-remote ~/.workbuddy/skills/
 ## 配置
 
 ```bash
-export REMOTE_SERVER='https://old-hub.example.com'   # 可省略，此为默认值
+export REMOTE_SERVER='https://hub.example.com'   # 可省略，此为默认值
 export REMOTE_TOKEN='<运维提供的控制 token>'
 ```
 
@@ -58,7 +58,7 @@ export REMOTE_TOKEN='<运维提供的控制 token>'
   用谁的 token 就只能看到和控制谁的设备，跨用户的设备返回 404。
   管理员的 token 即服务端 `.env` 里的 `CONTROL_TOKEN`（旧部署迁移后归管理员，保持不变）。
   **不要用设备私钥代替控制 token。**
-- **去哪里取 token**：登录管理台 `https://old-hub.example.com/admin.html` → 左侧「用户管理」（仅超管可见）→
+- **去哪里取 token**：登录管理台 `https://hub.example.com/admin.html` → 左侧「用户管理」（仅超管可见）→
   表格「控制 TOKEN」列找到自己账号，复制。普通用户看不到该页时，用下方自助注册或找超管要 token。
   token 在页面上可能截断显示，点「重置 Token」可重新生成并完整显示一次（旧值立即失效）。
 - token 不写日志；可用 `--token` 临时传入。若 token 被重置，旧 token 立即失效。
@@ -144,7 +144,7 @@ python3 scripts/remote.py --json list
 - **Linux**：`chmod +x nexus-device-linux && ./nexus-device-linux`。
 
 **首次配置**：运行后自动打开本地配置页 `http://127.0.0.1:18770/`（只绑回环），
-填入服务端地址 `wss://old-hub.example.com/ws`、设备 ID 与私钥（管理台「设备管理 → 创建设备」下发，私钥只显示一次），
+填入服务端地址 `wss://hub.example.com/ws`、设备 ID 与私钥（管理台「设备管理 → 创建设备」下发，私钥只显示一次），
 点「保存并连接」显示「在线」即可。配置页还有「开机自启动」开关和「退出程序」按钮。
 
 设备上线后用 `python3 scripts/remote.py list` 找到它的 device_id，即可用本 skill 遥控。

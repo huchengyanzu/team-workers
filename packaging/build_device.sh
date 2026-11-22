@@ -36,4 +36,4 @@ echo "=== 产物 ==="
 ls -lh "$OUT/$NAME" 2>/dev/null || ls -lh "$OUT/$NAME.exe" 2>/dev/null
 echo "=== 用法 ==="
 echo "  把可执行文件放到任意目录，直接运行；首次启动会开本机配置页 http://127.0.0.1:18770/"
-echo "  填服务端地址 wss://old-hub.example.com/ws + device_id + 私钥即可上线"
+echo "  填服务端地址 wss://hub.example.com/ws + device_id + 私钥即可上线"

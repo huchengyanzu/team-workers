@@ -1,13 +1,13 @@
-# Nexus Remote 部署包
+# team-workers 部署包
 
-服务端已部署到云端 `203.0.113.10`，systemd 服务 `nexus-remote.service`，公网入口 `https://old-hub.example.com/remote/`。
+服务端已部署到云端 `203.0.113.10`，systemd 服务 `nexus-remote.service`，公网入口 `https://hub.example.com/remote/`。
 
 ## 部署结果（2026-11-20 实测）
 
 | 项 | 值 |
 |---|---|
-| 公网入口 | `https://old-hub.example.com/remote/`（管理台/API） |
-| 设备 WS | `wss://old-hub.example.com/remote/ws` |
+| 公网入口 | `https://hub.example.com/remote/`（管理台/API） |
+| 设备 WS | `wss://hub.example.com/remote/ws` |
 | 云端目录 | `/opt/nexus-remote`（独立，不动任何现有业务） |
 | 内部端口 | HTTP `127.0.0.1:18766`、WS `127.0.0.1:18765`（仅回环，不对外） |
 | systemd | `nexus-remote.service`，active + enabled，开机自启 |
@@ -49,6 +49,6 @@ scp /tmp/nexus-remote.tar.gz user@192.168.1.10:C:\\Users\\user\\nexus-remote.tar
 
 ## 安全
 
-- 服务端仅监听回环，公网入口由 Caddy 8443 反代；TLS 由现成 `old-hub.example.com` 证书提供，`--cookie-secure` 已开。
+- 服务端仅监听回环，公网入口由 Caddy 8443 反代；TLS 由现成 `hub.example.com` 证书提供，`--cookie-secure` 已开。
 - 控制 token 供 skill/CLI 用，管理员口令供 Web 登录用，二者分离，均只在 `.env`（0700）。
 - 本机（Mac）出口对 8443 的直连被网络环境 reset，端到端验证在云端容器内完成（wss 长链 + skill 闭环全过）；这不影响目标用户经正常网络访问。

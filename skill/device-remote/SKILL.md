@@ -22,10 +22,10 @@ description: >
 ```bash
 --token '<token>'                          # 命令行临时
 export REMOTE_TOKEN='<token>'              # 环境变量
-# scripts/config.local.json（推荐，权限 600）：{"server":"https://old-hub.example.com","token":"<token>"}
+# scripts/config.local.json（推荐，权限 600）：{"server":"https://hub.example.com","token":"<token>"}
 ```
 
-获取：管理台 `https://old-hub.example.com/admin.html` →「用户管理」→ 控制 TOKEN 列点「复制」（仅超管可见；普通用户找超管要）。
+获取：管理台 `https://hub.example.com/admin.html` →「用户管理」→ 控制 TOKEN 列点「复制」（仅超管可见；普通用户找超管要）。
 token 不得出现在日志、回执、命令行回显中。**设备私钥 ≠ 控制 token**：私钥填在设备端（create/reset-key 时只回显一次），token 填本 skill。
 
 无账号时自助注册（无需现成 token）：
@@ -95,7 +95,7 @@ offline（status != online、下发返回 409、心跳超时）必须明确回�
 | macOS | `nexus-device-mac` / `Nexus Remote Device.app` | `./nexus-device-mac` 或双击 app |
 | Linux x86_64 | `nexus-device-linux` | `chmod +x nexus-device-linux && ./nexus-device-linux` |
 
-首次配置：运行后自动开 `http://127.0.0.1:18770/`（占用顺延，只绑回环）→ 填服务端 `wss://old-hub.example.com/ws`（必须 `/ws` 结尾，写成 `/cn/ws` 会 404 离线）+ 设备 ID/私钥（管理台「创建设备」下发，只显示一次）+ 白名单全选 + 文件范围不限 → 「保存并连接」，显示「在线」即成功。
+首次配置：运行后自动开 `http://127.0.0.1:18770/`（占用顺延，只绑回环）→ 填服务端 `wss://hub.example.com/ws`（必须 `/ws` 结尾，写成 `/cn/ws` 会 404 离线）+ 设备 ID/私钥（管理台「创建设备」下发，只显示一次）+ 白名单全选 + 文件范围不限 → 「保存并连接」，显示「在线」即成功。
 
 Win 备用：配置页报 `CSRF check failed` 时用 `windows-setup.ps1` 直接写配置绕过页面。
 配置页有「开机自启动」（Win 写 HKCU Run；mac 写 LaunchAgent，后台启动不弹浏览器）和「退出程序」。

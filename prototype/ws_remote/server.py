@@ -619,8 +619,8 @@ class HttpApi:
                                        "error": "服务端邮件未配置，请联系管理员开通注册"})
             sent = await asyncio.get_running_loop().run_in_executor(
                 None, mailer.send_email, email,
-                "Nexus Remote 注册验证码",
-                "您好，\n\n您正在注册 Nexus Remote，验证码为：%s\n\n"
+                "team-workers 注册验证码",
+                "您好，\n\n您正在注册 team-workers，验证码为：%s\n\n"
                 "验证码 5 分钟内有效，请尽快填写。若非本人操作请忽略此邮件。" % code,
             )
             if not sent:
