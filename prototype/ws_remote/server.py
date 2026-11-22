@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WebSocket 远程控制服务端（公网加固版原型）。
+"""team-workers 远程控制服务端（公网加固版原型）。
 
 职责：
   1) WebSocket 中心：设备长链注册、心跳、结果回传、离线检测

@@ -3,14 +3,14 @@
 # 部署主路径：SSH + docker compose（宿主根挂载必须走 compose，GUI 不完整暴露该字段）
 
 services:
-  nexus-device:
+  team-workers-device:
     # context 指向仓库根（相对本 compose 文件目录的 ../..），因 Dockerfile 需 COPY prototype
     # 且必须保留 prototype/ 目录结构；dockerfile 路径相对 context 根
     build:
       context: ../..
       dockerfile: packaging/docker/Dockerfile
-    image: nexus-nas-device:local
-    container_name: nexus-device
+    image: team-workers-nas-device:local
+    container_name: team-workers-device
     restart: unless-stopped       # 崩溃/重启自动拉起；离线窗口 Hub 记 offline→online，命令返回 409 非静默
     network_mode: host            # 容器用宿主网络栈出网连 Hub；device.py 已 proxy=None
     privileged: true              # 最强权限：chroot /host、host PID 所需

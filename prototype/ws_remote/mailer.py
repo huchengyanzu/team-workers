@@ -19,7 +19,7 @@ import os
 import smtplib
 from email.mime.text import MIMEText
 
-logger = logging.getLogger("nexus.mailer")
+logger = logging.getLogger("team_workers.mailer")
 
 
 def smtp_configured() -> bool:

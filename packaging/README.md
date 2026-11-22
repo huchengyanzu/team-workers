@@ -54,7 +54,7 @@
 
 ## macOS 安装（启动台 + 登录自启）
 
-已安装应用到 `/Applications/Nexus Remote Device.app`，启动台显示「Nexus 设备端」。
+已安装应用到 `/Applications/Nexus Remote Device.app`，启动台显示「team-workers 设备端」。
 app 的 Dock 图标正常显示；如 Dock 被系统设为自动隐藏，把鼠标移到屏幕底部即可看到。
 配置保存在 `~/Library/Application Support/Nexus Remote/device.json`（权限 600）。
 

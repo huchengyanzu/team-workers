@@ -30,7 +30,7 @@
    ```
 5. 看上线日志：
    ```sh
-   docker logs -f nexus-device
+   docker logs -f team-workers-device
    # 出现 “[device] 已上线：dev-xxxx（wss://...）” 即成功
    ```
 

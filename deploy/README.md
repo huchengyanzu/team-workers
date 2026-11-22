@@ -13,7 +13,7 @@
 | systemd | `nexus-remote.service`，active + enabled，开机自启 |
 | 数据库 | `/opt/nexus-remote/data/hub.db`（含 logs_YYYYMM 按月表） |
 | 凭证 | `/opt/nexus-remote/.env`（0700，管理员「admin」口令 + 控制 token，不在仓库明文保存）。用户名支持中文（已修 `compare_digest` 仅 ASCII 的限制）。 |
-| Caddy | `/opt/mycli-edge/Caddyfile` 内新增 `Nexus Remote` 段（备份 `.bak.*`），reload 不中断现有业务 |
+| Caddy | `/opt/mycli-edge/Caddyfile` 内新增 `team-workers` 段（备份 `.bak.*`），reload 不中断现有业务 |
 | 资源占用 | 内存 ~18MB（2C2G 云机无压力） |
 
 ## 文件

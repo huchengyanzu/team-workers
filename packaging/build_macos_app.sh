@@ -24,12 +24,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
   <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
-  <key>CFBundleDisplayName</key><string>Nexus 设备端</string>
+  <key>CFBundleDisplayName</key><string>team-workers 设备端</string>
   <key>CFBundleExecutable</key><string>nexus-device-mac</string>
   <key>CFBundleIconFile</key><string>icon.icns</string>
   <key>CFBundleIdentifier</key><string>com.nexusremote.device</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleName</key><string>Nexus Remote Device</string>
+  <key>CFBundleName</key><string>team-workers Device</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>1</string>
