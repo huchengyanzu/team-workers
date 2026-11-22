@@ -26,6 +26,7 @@ python3 -m PyInstaller --onefile --clean --noconfirm \
   --add-data "ui/theme.css:ui" \
   --hidden-import websockets \
   --hidden-import exec_server \
+  --hidden-import docker_policy \
   --hidden-import shlex --hidden-import locale --hidden-import signal \
   --hidden-import subprocess --hidden-import tempfile --hidden-import threading \
   --hidden-import uuid --hidden-import hmac --hidden-import http.server \

@@ -1,0 +1,35 @@
+# 第四种设备形态：NAS 容器化设备端（第四节点）
+# 目标：飞牛 fnOS（Debian 12 原生 Docker）/ 群晖等能跑 Docker 但装不了原生 agent 的机器
+# 部署主路径：SSH + docker compose（宿主根挂载必须走 compose，GUI 不完整暴露该字段）
+
+services:
+  nexus-device:
+    # context 指向仓库根（相对本 compose 文件目录的 ../..），因 Dockerfile 需 COPY prototype
+    # 且必须保留 prototype/ 目录结构；dockerfile 路径相对 context 根
+    build:
+      context: ../..
+      dockerfile: packaging/docker/Dockerfile
+    image: nexus-nas-device:local
+    container_name: nexus-device
+    restart: unless-stopped       # 崩溃/重启自动拉起；离线窗口 Hub 记 offline→online，命令返回 409 非静默
+    network_mode: host            # 容器用宿主网络栈出网连 Hub；device.py 已 proxy=None
+    privileged: true              # 最强权限：chroot /host、host PID 所需
+    pid: host                     # 可见并管理宿主进程
+    ipc: host                     # 与宿主共享 IPC
+    volumes:
+      - /:/host:rw                                  # 宿主根挂到 /host —— 完全控制宿主的关键
+      - /var/run/docker.sock:/var/run/docker.sock:rw # 管理宿主 Docker（docker CLI 走此 socket）
+      - ./config:/config:rw                         # 持久化 device.json（含私钥）与审计日志；容器重建不丢
+    environment:
+      # ↓ 三要素在 compose 中明文可见（宿主 root 可读）——符合用户已签知的风险知情，勿放公开仓库
+      SERVER_URL: "wss://hub.example.com/ws"
+      DEVICE_ID: "dev-xxxx"          # 改成平台创建的真实设备 ID
+      DEVICE_KEY: "<一次性私钥>"      # 改成创建设备时下发的一次性私钥（只显示一次）
+      PLATFORM: "nas-docker"         # 平台侧据此识别为容器型设备节点
+      HOST_ROOT: "/host"             # FileTools virtual_root 前缀：绝对路径 /etc → /host/etc
+      ALLOWLIST: "chroot,sh,bash,docker" # exec 入口白名单（_prepare 只校验 argv[0]=chroot）
+      POLICY_MODE: "enforce"         # 分级策略：off / audit_only / enforce【默认值待用户拍板】
+      # AUDIT_PATH: /config/policy-audit.jsonl   # 审计路径，默认已落 /config 卷
+      PYTHONUNBUFFERED: "1"
+    # 资源上限：低端 ARM NAS 内存紧张，限制容器常驻内存（验收项 ≤100MB 待真机实测）
+    mem_limit: 256m

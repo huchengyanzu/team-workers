@@ -28,6 +28,7 @@ cmd = [
     "--add-data", f"{SRC / 'ui' / 'theme.css'};ui",
     "--hidden-import", "websockets",
     "--hidden-import", "exec_server",
+    "--hidden-import", "docker_policy",
     "--hidden-import", "shlex",
     "--hidden-import", "locale",
     "--hidden-import", "signal",

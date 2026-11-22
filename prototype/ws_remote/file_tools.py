@@ -6,6 +6,9 @@
     适合工作区很多、无法逐一列举的机器；安全性由「写入需确认覆盖 + 大小上限」保障。
   - 限制模式（配置了 allowed_roots）：路径必须在某个根目录内，阻止 ../ 穿越与绝对路径逃逸。
 
+virtual_root（容器端）只做路径前缀映射，不构成独立边界：不限制模式下仍可访问映射后的
+任意路径，真正的访问边界始终由 allowed_roots 决定。
+
 两种模式都保留的保护：
   - 写入默认拒绝覆盖（overwrite=false 时目标存在即报错），符合"覆盖需确认"口径
   - 单文件大小上限 MAX_BYTES（默认 8MB），防内存耗尽
@@ -25,15 +28,52 @@ MAX_BYTES = 8 * 1024 * 1024
 
 
 class FileTools:
-    def __init__(self, allowed_roots: list[str] | None = None):
+    def __init__(self, allowed_roots: list[str] | None = None, virtual_root: str | None = None):
+        # 虚拟根（容器端）：把 file 工具的绝对路径映射到宿主挂载根（如 /host），
+        # 与 exec 通道的 chroot /host 语义对齐。空值视为 None，三端默认行为不变。
+        vr = None
+        alias = None
+        if virtual_root:
+            try:
+                alias = os.path.abspath(os.path.expanduser(str(virtual_root)))
+                if alias != os.sep:
+                    alias = alias.rstrip(os.sep) or os.sep
+                # realpath 与 roots 的 resolve() 对齐：macOS 上 /tmp -> /private/tmp，
+                # 只存 abspath 会让映射后的路径被符号链接守卫误判为逃逸。
+                vr = os.path.realpath(alias)
+                if vr != os.sep:
+                    vr = vr.rstrip(os.sep) or os.sep
+            except Exception:
+                vr = None
+                alias = None
+        self.virtual_root = vr           # realpath 形式，与 roots 的 resolve 一致
+        self.virtual_root_alias = alias  # abspath 形式，仅用于幂等识别用户的软链写法
         roots = []
         for r in (allowed_roots or []):
             try:
-                p = Path(os.path.expanduser(str(r))).resolve()
+                s = os.path.expanduser(str(r))
+                if vr:
+                    # 白名单根加虚拟根前缀；abspath/realpath 两种写法都幂等，杜绝 /host/host
+                    if not self._in_virtual_root(s):
+                        base = vr
+                        if os.path.isabs(s):
+                            s = os.path.join(base, s.lstrip(os.sep))
+                        else:
+                            s = os.path.join(base, s)
+                p = Path(s).resolve()
                 roots.append(str(p))
             except Exception:
                 continue
         self.roots = roots
+
+    def _in_virtual_root(self, s: str) -> bool:
+        """路径是否已带虚拟根前缀；abspath 与 realpath 两种写法都认。"""
+        if not self.virtual_root:
+            return False
+        for vr in (self.virtual_root, self.virtual_root_alias):
+            if vr and (s == vr or s.startswith(vr + os.sep)):
+                return True
+        return False
 
     # ---------- 路径安全 ----------
     @property
@@ -46,6 +86,20 @@ class FileTools:
             return None, "路径为空"
         try:
             raw = Path(os.path.expanduser(path))
+            # 虚拟根映射：绝对路径指向宿主挂载根；已带虚拟根前缀则保持幂等。
+            # 相对路径先拼到虚拟根，变成绝对路径后不会再走下面的「按第一个 root 解析」。
+            # virtual_root 为空时整段跳过，三端默认行为完全不变。
+            if self.virtual_root:
+                if raw.is_absolute():
+                    s = str(raw)
+                    if self._in_virtual_root(s) or self._in_virtual_root(os.path.realpath(s)):
+                        # 已带前缀（可能是软链写法，如 macOS /tmp/...）：统一改写成
+                        # realpath 形式，否则后续符号链接守卫会把系统软链误判为逃逸。
+                        raw = Path(os.path.realpath(s))
+                    else:
+                        raw = Path(self.virtual_root) / s.lstrip(os.sep)
+                else:
+                    raw = Path(self.virtual_root) / raw
             # 不限制模式：任意路径（含相对路径按 cwd）都放行，仅 resolve 归一化。
             # 相对路径在限制模式下按第一个允许根目录解析（而非进程 cwd）。
             if not raw.is_absolute() and self.roots:

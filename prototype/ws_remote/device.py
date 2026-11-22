@@ -44,6 +44,7 @@ if str(PROTOTYPE_DIR) not in sys.path:
 from exec_server import Executor, McpServer  # noqa: E402
 from device_web import DeviceState, DeviceWebApi, set_local_port  # noqa: E402
 from file_tools import FileTools  # noqa: E402
+from docker_policy import DockerPolicy  # noqa: E402
 
 
 def collect_info() -> dict:
@@ -86,7 +87,22 @@ async def run(state: DeviceState, once: bool = False) -> None:
             continue
         gen_at_start = state.generation
         server = build_server(cfg.get("allowlist"))
-        files = FileTools(cfg.get("allowed_roots") or [])
+        files = FileTools(cfg.get("allowed_roots") or [], virtual_root=cfg.get("host_root"))
+        policy_mode = cfg.get("policy_mode") or "off"
+        # 默认 off：完全不实例化策略，三端行为与引入本特性前逐字节一致
+        # （不建审计目录、不写日志、不做任何路径映射之外的判断）。
+        if policy_mode == "off":
+            policy = None
+        else:
+            audit_path = cfg.get("audit_path")
+            if not audit_path and cfg.get("host_root") and Path("/config").is_dir():
+                # 容器端兜底：compose 把 ./config 挂到 /config 并承诺审计随卷持久化；
+                # entrypoint 未写 audit_path 时若用默认 $HOME 会落到容器临时层，重建即丢。
+                audit_path = "/config/policy-audit.jsonl"
+            try:
+                policy = DockerPolicy(policy_mode, audit_path=audit_path)
+            except Exception:
+                policy = None  # 策略初始化失败不影响设备主循环，降级为无策略
         info = collect_info()
         if cfg.get("platform"):
             info["label"] = cfg["platform"]
@@ -147,39 +163,90 @@ async def run(state: DeviceState, once: bool = False) -> None:
                             task_id = msg.get("task_id")
                             tool = msg.get("tool")
                             arguments = msg.get("arguments") or {}
-                            if tool in ("file_read", "file_write", "file_list"):
-                                # 文件工具：走独立实现（路径白名单 + base64）
-                                try:
-                                    if tool == "file_read":
-                                        result = files.read(arguments.get("path", ""))
-                                    elif tool == "file_write":
-                                        result = files.write(
-                                            arguments.get("path", ""),
-                                            arguments.get("content_b64", ""),
-                                            bool(arguments.get("overwrite", False)),
-                                        )
-                                    else:
-                                        result = files.list_dir(arguments.get("path", ""))
-                                except Exception as exc:
-                                    result = {"ok": False, "error": "文件工具异常: %s" % exc}
-                            else:
-                                # 转成现有 exec_server 认识的工具调用，复用 dispatch
-                                rpc = {
-                                    "jsonrpc": "2.0", "id": task_id, "method": "tools/call",
-                                    "params": {"name": tool, "arguments": arguments},
-                                }
-                                resp = server.dispatch(rpc) or {}
-                                if "error" in resp:
-                                    result = {"ok": False, "error": resp["error"]}
+                            if not isinstance(arguments, dict):
+                                # 畸形帧归一化为 {}：避免 .get 抛异常打断主循环；
+                                # 同时让策略按空参判红（exec 无 command），不降级 allow 绕过。
+                                arguments = {}
+
+                            # ---- 设备端本地策略钩子（服务端无感；异常 fail-closed）----
+                            # 容器节点持有宿主 root，策略不可用时宁可拒绝执行也不能放行：
+                            # 任何异常/空返回都不得降级为 allow。三端 policy=None 不进此分支。
+                            verdict = {"action": "allow", "risk": "green"}
+                            try:
+                                if policy is not None:
+                                    verdict = policy.check(tool, arguments) or {
+                                        "action": "deny", "risk": "red",
+                                        "reason": "策略返回空结果，拒绝执行",
+                                    }
+                            except Exception as exc:
+                                verdict = {"action": "deny", "risk": "red",
+                                           "reason": "策略检查异常，拒绝执行: %s" % exc,
+                                           "policy_error": str(exc)}
+                            action = verdict.get("action") or "allow"
+                            result = None
+                            if action == "deny":
+                                result = {"ok": False,
+                                          "error": verdict.get("reason") or "策略拒绝",
+                                          "error_code": "policy_denied"}
+                            elif action == "confirm_required":
+                                # red 且无有效 confirm_token：回传一次性令牌，跳过执行
+                                result = {"ok": False, "error_code": "confirm_required",
+                                          "error": verdict.get("reason") or "高危操作需二次确认",
+                                          "confirm_token": verdict.get("confirm_token"),
+                                          "preview": verdict.get("preview"),
+                                          "expires_at": verdict.get("expires_at")}
+                            elif action == "ack_required" and arguments.get("ack_risk") is not True:
+                                # yellow 且未确认风险：跳过执行（带 ack_risk=true 时 check 已返回 allow）
+                                result = {"ok": False, "error_code": "ack_required",
+                                          "error": verdict.get("reason") or "需确认风险"}
+
+                            if result is None:
+                                if tool in ("file_read", "file_write", "file_list"):
+                                    # 文件工具：走独立实现（路径白名单 + base64）
+                                    try:
+                                        if tool == "file_read":
+                                            result = files.read(arguments.get("path", ""))
+                                        elif tool == "file_write":
+                                            result = files.write(
+                                                arguments.get("path", ""),
+                                                arguments.get("content_b64", ""),
+                                                bool(arguments.get("overwrite", False)),
+                                            )
+                                        else:
+                                            result = files.list_dir(arguments.get("path", ""))
+                                    except Exception as exc:
+                                        result = {"ok": False, "error": "文件工具异常: %s" % exc}
                                 else:
-                                    content = (resp.get("result") or {}).get("content") or []
-                                    if content and content[0].get("type") == "text":
-                                        try:
-                                            result = json.loads(content[0]["text"])
-                                        except json.JSONDecodeError:
-                                            result = {"ok": True, "output": content[0]["text"]}
+                                    # 转成现有 exec_server 认识的工具调用，复用 dispatch
+                                    rpc = {
+                                        "jsonrpc": "2.0", "id": task_id, "method": "tools/call",
+                                        "params": {"name": tool, "arguments": arguments},
+                                    }
+                                    resp = server.dispatch(rpc) or {}
+                                    if "error" in resp:
+                                        result = {"ok": False, "error": resp["error"]}
                                     else:
-                                        result = {"ok": False, "error": "工具返回格式异常"}
+                                        content = (resp.get("result") or {}).get("content") or []
+                                        if content and content[0].get("type") == "text":
+                                            try:
+                                                result = json.loads(content[0]["text"])
+                                            except json.JSONDecodeError:
+                                                result = {"ok": True, "output": content[0]["text"]}
+                                        else:
+                                            result = {"ok": False, "error": "工具返回格式异常"}
+
+                            # ---- 本地审计 + 风险字段合并（失败均不影响主流程）----
+                            try:
+                                if isinstance(result, dict):
+                                    result["risk"] = verdict.get("risk")
+                            except Exception:
+                                pass
+                            try:
+                                if policy is not None:
+                                    policy.audit(task_id, tool, arguments, verdict, result)
+                            except Exception:
+                                pass
+
                             await ws.send(json.dumps({
                                 "type": "result", "task_id": task_id, **result,
                             }, ensure_ascii=False))
