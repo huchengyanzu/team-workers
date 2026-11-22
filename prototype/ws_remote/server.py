@@ -250,15 +250,27 @@ class Hub:
             c.execute(sql, args)
 
     # ---------- 设备（按 owner 隔离） ----------
-    def create_device(self, display_name: str, platform: str, owner_id: int) -> tuple[str, str]:
+    def create_device(self, display_name: str, platform: str, owner_id: int) -> tuple[str, str] | None:
+        """同 owner 下显示名唯一；重名返回 None（不抛异常）。"""
+        # 规范化：strip 后比较（大小写敏感），并落库规范化名，保证比对口径一致
+        name = display_name.strip()[:128]
         device_id = new_id("dev")
         key = secrets.token_urlsafe(32)
-        self._x(
-            "INSERT INTO devices(device_id,display_name,platform,key_hash,status,last_seen,created_at,owner_id) "
-            "VALUES(?,?,?,?,'offline',?,?,?)",
-            (device_id, display_name[:128], platform[:64], hash_key(key),
-             now_iso(), now_iso(), owner_id),
-        )
+        # 查+写置于同一写事务：BEGIN IMMEDIATE 先取写锁，串行化并发同名请求
+        with sqlite3.connect(self.db_path) as c:
+            c.execute("BEGIN IMMEDIATE")
+            dup = c.execute(
+                "SELECT 1 FROM devices WHERE owner_id=? AND display_name=? LIMIT 1",
+                (owner_id, name),
+            ).fetchone()
+            if dup:
+                return None  # 无写入，with 退出释放锁
+            c.execute(
+                "INSERT INTO devices(device_id,display_name,platform,key_hash,status,last_seen,created_at,owner_id) "
+                "VALUES(?,?,?,?,'offline',?,?,?)",
+                (device_id, name, platform[:64], hash_key(key),
+                 now_iso(), now_iso(), owner_id),
+            )
         return device_id, key
 
     def delete_device(self, device_id: str, owner_id: int) -> bool:
@@ -342,22 +354,32 @@ class Hub:
             asyncio.create_task(self.conns[device_id].ws.close(code=4002, reason="key reset"))
         return key
 
-    def rename_device(self, device_id: str, new_name: str, owner_id: int) -> tuple[bool, str]:
-        rows = self._q(
-            "SELECT display_name FROM devices WHERE device_id=? AND owner_id=?",
-            (device_id, owner_id),
-        )
-        if not rows:
-            return False, ""
-        old_name = rows[0][0]
+    def rename_device(self, device_id: str, new_name: str, owner_id: int) -> tuple[bool, str, str]:
+        """返回 (ok, old_name, reason)；reason: '' 成功 / 'not_found' / 'duplicate'。"""
+        name = new_name.strip()[:128]
         with sqlite3.connect(self.db_path) as c:
+            c.execute("BEGIN IMMEDIATE")  # 查+写同一写事务，串行化并发同名改名
+            row = c.execute(
+                "SELECT display_name FROM devices WHERE device_id=? AND owner_id=?",
+                (device_id, owner_id),
+            ).fetchone()
+            if not row:
+                return False, "", "not_found"
+            old_name = row[0]
+            # 排除自身：改为自己当前名（trim 后相同）属幂等，不算重名
+            dup = c.execute(
+                "SELECT 1 FROM devices WHERE owner_id=? AND display_name=? AND device_id<>? LIMIT 1",
+                (owner_id, name, device_id),
+            ).fetchone()
+            if dup:
+                return False, old_name, "duplicate"
             cur = c.execute(
                 "UPDATE devices SET display_name=? WHERE device_id=? AND owner_id=?",
-                (new_name, device_id, owner_id),
+                (name, device_id, owner_id),
             )
             if cur.rowcount != 1:
-                return False, ""
-        return True, old_name
+                return False, old_name, "not_found"
+        return True, old_name, ""
 
     # ---------- 任务 ----------
     def create_task(self, device_id: str, tool: str, arguments: dict, owner_id: int) -> str:
@@ -718,7 +740,14 @@ class HttpApi:
         if method == "POST" and path == "/api/admin/devices":
             name = str(body.get("display_name", "未命名"))[:128]
             plat = str(body.get("platform", ""))[:64]
-            device_id, key = self.hub.create_device(name, plat, owner_id)
+            created = self.hub.create_device(name, plat, owner_id)
+            if created is None:
+                # 失败的创建同样留痕（参照 task_rejected 风格）
+                self.hub.audit.log("device_create", actor=actor, ip=src_ip, target="-",
+                                   detail=("name=%s platform=%s reject_reason=duplicate" % (name, plat))[:1000],
+                                   result="reject")
+                return json_resp(409, {"error": "该显示名已被使用"})
+            device_id, key = created
             self.hub.audit.log("device_create", actor=actor, ip=src_ip, target=device_id,
                                detail="name=%s platform=%s" % (name, plat))
             return json_resp(200, {"device_id": device_id, "key": key})
@@ -746,12 +775,21 @@ class HttpApi:
                 if (not name or len(name) > 128
                         or any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in name)):
                     return json_resp(400, {"error": "显示名不能为空或过长"})
-                ok, old_name = self.hub.rename_device(device_id, name, owner_id)
+                ok, old_name, reason = self.hub.rename_device(device_id, name, owner_id)
+                if reason == "duplicate":
+                    self.hub.audit.log("device_rename", actor=actor, ip=src_ip, target=device_id,
+                                       detail=("from=%s to=%s reason=duplicate" % (old_name, name))[:1000],
+                                       result="reject")
+                    return json_resp(409, {"error": "该显示名已被使用"})
+                if not ok or reason == "not_found":
+                    self.hub.audit.log("device_rename", actor=actor, ip=src_ip, target=device_id,
+                                       detail=("from=%s to=%s" % (old_name, name))[:1000],
+                                       result="fail")
+                    return json_resp(404, {"error": "device not found"})
                 self.hub.audit.log("device_rename", actor=actor, ip=src_ip, target=device_id,
                                    detail=("from=%s to=%s" % (old_name, name))[:1000],
-                                   result="ok" if ok else "fail")
-                return (json_resp(200, {"ok": True, "display_name": name}) if ok
-                        else json_resp(404, {"error": "device not found"}))
+                                   result="ok")
+                return json_resp(200, {"ok": True, "display_name": name})
         if path.startswith("/api/admin/devices/") and method == "DELETE":
             device_id = path.split("/")[4]
             ok = self.hub.delete_device(device_id, owner_id)

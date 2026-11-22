@@ -265,6 +265,20 @@
       setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 3200);
     }
 
+    /* ---------- 设备显示名唯一性前端预校验（权威校验仍在后端 409） ---------- */
+    // 当前设备列表缓存：loadDevices() 成功后写入，来自真实 GET /api/devices 数据
+    var currentDevices = [];
+    // trim 后比较、大小写敏感；excludeId 用于改名时排除自身（按 owner 作用域）
+    function isNameTaken(name, excludeId) {
+      var target = String(name == null ? '' : name).trim();
+      for (var i = 0; i < currentDevices.length; i++) {
+        var d = currentDevices[i] || {};
+        if (excludeId != null && String(d.device_id) === String(excludeId)) continue;
+        if (String(d.display_name == null ? '' : d.display_name).trim() === target) return true;
+      }
+      return false;
+    }
+
     /* ---------- URL 前缀：本机 ''，公网 /remote/ 下为 '/remote' ---------- */
     var PREFIX = (function () {
       var p = location.pathname;
@@ -333,6 +347,7 @@
       var err = el('div', { cls: 'form-error' });
       async function submit() {
         if (!name.value.trim()) { err.textContent = '请填写显示名。'; return; }
+        if (isNameTaken(name.value.trim(), null)) { err.textContent = '该显示名已被使用。'; return; }
         err.textContent = '';
         var btn = el('button', { cls: 'btn btn-primary', text: '创建中…' }); btn.disabled = true;
         try {
@@ -367,6 +382,7 @@
       async function submit() {
         var next = name.value.trim();
         if (!next) { err.textContent = '显示名不能为空。'; return; }
+        if (isNameTaken(next, id)) { err.textContent = '该显示名已被使用。'; return; }
         err.textContent = '';
         if (next === old.trim()) { closeModal(); return; }
         var btn = document.querySelector('.modal-foot .btn-primary');
@@ -631,6 +647,7 @@
       body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7' } }, [el('span', { cls: 'spinner' })])]));
       try {
         var res = await api('/api/devices'); var list = (res.data && res.data.devices) || [];
+        currentDevices = list;
         clear(body);
         if (!list.length) { body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7' }, text: '暂无设备，点击右上角「创建设备」开始' })])); return; }
         list.forEach(function (d) {
