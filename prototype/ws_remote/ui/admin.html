@@ -65,7 +65,12 @@
           <span class="nav-text"><span class="nav-label">下载中心</span><span class="nav-sub">设备端与 AI Skill</span></span>
         </button>
       </nav>
-      <div class="sidebar-foot">team-workers v0.1.0<br>远程控制中枢</div>
+      <div class="sidebar-foot">team-workers v0.1.0<br>远程控制中枢
+        <a class="gh-link gh-link--dark" href="https://github.com/huchengyanzu/team-workers" target="_blank" rel="noopener noreferrer" title="在 GitHub 查看项目源码（新窗口打开）" aria-label="在 GitHub 查看 team-workers 项目源码，新窗口打开">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3H3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-3M9 2h5v5M14 2 7 9"/></svg>
+          <span class="gh-link-label">GitHub</span>
+        </a>
+      </div>
     </aside>
 
     <div class="main">
@@ -184,7 +189,7 @@
 
         <!-- ============ 视图 5：下载中心（纯静态 + UA 检测，不调 API） ============ -->
         <section id="view-downloads" class="view hidden">
-          <div class="view-head"><h2>下载中心</h2><p>获取设备端程序与 AI Skill；已根据你的系统推荐对应版本</p></div>
+          <div class="view-head"><h2>下载中心</h2><p>获取设备端程序、NAS 容器端部署文档与 AI Skill；已根据你的系统推荐对应版本</p></div>
           <div class="notice notice-brand">
             <span class="notice-icon" aria-hidden="true">ⓘ</span>
             <span id="dl-detect-bar">正在检测你的系统…</span>
@@ -192,6 +197,10 @@
           <div class="dl-section">
             <h3 class="dl-section-title">设备端程序<span class="dl-section-sub">安装到被控机器，用于建立远程连接</span></h3>
             <div id="download-grid" class="download-grid"></div>
+          </div>
+          <div class="dl-section">
+            <h3 class="dl-section-title">NAS 容器端<span class="dl-section-sub">群晖 / 飞牛等只能跑 Docker 的 NAS，以特权容器纳管整机</span></h3>
+            <div id="download-nas" class="download-grid"></div>
           </div>
           <div class="dl-section">
             <h3 class="dl-section-title">AI Skill<span class="dl-section-sub">让 AI 助手远程执行命令、读写文件、管理设备</span></h3>
@@ -709,6 +718,13 @@
       desc: '给 AI 助手用，安装后可远程执行命令 / 读写文件 / 管理设备。配合「用户管理」中的控制 Token（REMOTE_TOKEN）使用。',
       path: '/downloads/device-remote.zip'
     };
+    // NAS 容器端：不是可下载的单文件程序，跳仓库部署文档（外链，不经过 url() 前缀）
+    var NAS_DOWNLOAD = {
+      glyph: 'D', label: 'Docker · NAS', name: '设备端 · NAS 容器（Docker）',
+      file: 'Dockerfile + compose（自建）',
+      desc: '群晖 / 飞牛等只能跑 Docker 的 NAS：按文档在设备上本地构建镜像，以特权容器纳管整机。需先在「设备管理」新建设备拿到 ID 与私钥。支持 x86_64 / arm64。',
+      doc: 'https://github.com/huchengyanzu/team-workers/blob/main/packaging/docker/README.md'
+    };
     var PLATFORM_LABEL = { mac: 'macOS', win: 'Windows', linux: 'Linux' };
 
     // UA 检测：仅在识别到明确平台时给出推荐，识别不出则不打扰
@@ -742,6 +758,28 @@
       ]);
     }
 
+    // 外链文档卡片：与下载卡片同款样式，但按钮打开文档而非下载文件（避免 url() 前缀污染外链）
+    function docCard(item) {
+      var head = el('div', { cls: 'dl-head' }, [
+        el('span', { cls: 'dl-icon', text: item.glyph }),
+        el('div', { cls: 'grow' }, [
+          el('div', { cls: 'dl-title', text: item.name }),
+          el('div', { cls: 'dl-file', text: item.file })
+        ])
+      ]);
+      var foot = el('div', { cls: 'dl-foot' }, [
+        badge(item.label, 'badge-plain'),
+        el('a', {
+          cls: 'btn btn-sm btn-ghost', title: '查看部署文档',
+          attrs: { href: item.doc, target: '_blank', rel: 'noopener noreferrer' },
+          text: '📖 部署文档'
+        })
+      ]);
+      return el('div', { cls: 'card dl-card' }, [
+        head, el('div', { cls: 'dl-desc', text: item.desc }), foot
+      ]);
+    }
+
     function renderDownloads() {
       var detected = detectPlatform();
       var bar = $('dl-detect-bar');
@@ -758,6 +796,8 @@
         });
         list.forEach(function (item) { grid.appendChild(downloadCard(item, item.platform === detected)); });
       }
+      var nasBox = $('download-nas');
+      if (nasBox) { clear(nasBox); nasBox.appendChild(docCard(NAS_DOWNLOAD)); }
       var skillBox = $('download-skill');
       if (skillBox) { clear(skillBox); skillBox.appendChild(downloadCard(SKILL_DOWNLOAD, false)); }
     }

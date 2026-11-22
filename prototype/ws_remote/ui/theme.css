@@ -567,3 +567,28 @@ h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
     font-size: 16px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * 22. GitHub 项目入口（登录页 / 管理台侧栏共用）
+ *     - 深色容器（.login-aside / .sidebar）恒定深色，沿用容器内既有浅蓝 #7dd3fc，
+ *       避免浅色主题下 --c-brand 在深底上对比度不足；浅色容器复用 --c-brand 令牌。
+ *     - 截断交给 .gh-link-label，链接 max-width:100%，窄屏不溢出、不破坏布局。
+ * ------------------------------------------------------------------------- */
+.gh-link {
+  display: inline-flex; align-items: center; gap: 5px;
+  max-width: 100%; font-size: 11.5px; font-weight: 600;
+  text-decoration: none; transition: color .15s;
+}
+.gh-link-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-link svg { width: 13px; height: 13px; flex: none; }
+.gh-link:hover .gh-link-label { text-decoration: underline; }
+.gh-link--dark { color: #7dd3fc; }
+.gh-link--dark:hover { color: #e0f2fe; }
+.gh-link--on-surface { color: var(--c-brand); }
+.gh-link--on-surface:hover { color: var(--c-brand-2); }
+/* 深色页脚内另起一行：宽度随内容，但不超过父容器 */
+.login-foot .gh-link,
+.sidebar-foot .gh-link { display: flex; width: fit-content; margin-top: 6px; }
+/* 登录卡片底部入口：桌面隐藏（aside 已展示），窄屏展示（aside 被隐藏） */
+.login-card-gh { display: none; margin-top: var(--sp-6); text-align: center; }
+@media (max-width: 860px) { .login-card-gh { display: block; } }
