@@ -738,7 +738,9 @@ class HttpApi:
         if method == "GET" and path == "/api/devices":
             return json_resp(200, {"devices": self.hub.list_devices(owner_id)})
         if method == "POST" and path == "/api/admin/devices":
-            name = str(body.get("display_name", "未命名"))[:128]
+            name = str(body.get("display_name", "")).strip()[:128]
+            if not name:
+                return json_resp(400, {"error": "显示名不能为空"})
             plat = str(body.get("platform", ""))[:64]
             created = self.hub.create_device(name, plat, owner_id)
             if created is None:
