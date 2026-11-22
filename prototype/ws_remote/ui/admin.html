@@ -11,6 +11,7 @@
  *   POST   /api/admin/devices/<id>/enabled     body {enabled}
  *   POST   /api/admin/devices/<id>/key         -> {key}
  *   DELETE /api/admin/devices/<id>
+ *   POST   /api/admin/devices/<id>/rename    body {display_name} -> {ok,display_name}
  *   GET    /api/logs?month=YYYYMM&actor=&action=&result=&page=1 -> {rows,total,pages}
  * 安全：所有服务端数据经 el()/textContent 写入，绝不 innerHTML 拼接不可信内容。
 -->
@@ -357,6 +358,41 @@
       name.focus();
     }
 
+    // 修改设备显示名弹窗
+    function openRenameModal(id, oldName) {
+      var name = el('input', { cls: 'input', attrs: { placeholder: '输入新的显示名', maxlength: '60' } });
+      var old = textOf(oldName) === '—' ? '' : String(oldName);
+      var err = el('div', { cls: 'form-error' });
+      name.value = old;
+      async function submit() {
+        var next = name.value.trim();
+        if (!next) { err.textContent = '显示名不能为空。'; return; }
+        err.textContent = '';
+        if (next === old.trim()) { closeModal(); return; }
+        var btn = document.querySelector('.modal-foot .btn-primary');
+        btn.disabled = true; btn.textContent = '保存中…';
+        try {
+          var res = await api('/api/admin/devices/' + encodeURIComponent(id) + '/rename', { method: 'POST', body: { display_name: next } });
+          if (res.ok) {
+            closeModal();
+            toast('显示名已更新');
+            loadDevices();
+          } else { err.textContent = (res.data && res.data.error) || '修改失败'; }
+        } catch (e) { if (e.message !== 'unauthorized') err.textContent = '网络异常，请重试'; }
+        finally { btn.disabled = false; btn.textContent = '保存'; }
+      }
+      openModal(modalShell('修改设备显示名', [
+        el('div', { cls: 'card-sub' }, [el('span', { text: '当前名称：' }), el('span', { text: textOf(oldName) })]),
+        el('div', { cls: 'field' }, [el('label', { cls: 'label', text: '新显示名' }), name]),
+        err
+      ], [
+        el('button', { cls: 'btn btn-ghost', text: '取消', on: { click: closeModal } }),
+        el('button', { cls: 'btn btn-primary', text: '保存', on: { click: submit } })
+      ]));
+      name.focus();
+      name.select();
+    }
+
     /* ---------- 用户管理（管理员） ---------- */
     var currentRole = '';
 
@@ -599,6 +635,8 @@
         if (!list.length) { body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7' }, text: '暂无设备，点击右上角「创建设备」开始' })])); return; }
         list.forEach(function (d) {
           var actions = el('div', { cls: 'table-actions' });
+          actions.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '改名',
+            on: { click: function () { openRenameModal(d.device_id, d.display_name); } } }));
           actions.appendChild(el('button', {
             cls: 'btn btn-ghost btn-sm', text: d.enabled ? '禁用' : '启用',
             on: { click: function () { toggleDevice(d.device_id, !d.enabled); } }

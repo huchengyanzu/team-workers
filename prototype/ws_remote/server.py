@@ -342,6 +342,23 @@ class Hub:
             asyncio.create_task(self.conns[device_id].ws.close(code=4002, reason="key reset"))
         return key
 
+    def rename_device(self, device_id: str, new_name: str, owner_id: int) -> tuple[bool, str]:
+        rows = self._q(
+            "SELECT display_name FROM devices WHERE device_id=? AND owner_id=?",
+            (device_id, owner_id),
+        )
+        if not rows:
+            return False, ""
+        old_name = rows[0][0]
+        with sqlite3.connect(self.db_path) as c:
+            cur = c.execute(
+                "UPDATE devices SET display_name=? WHERE device_id=? AND owner_id=?",
+                (new_name, device_id, owner_id),
+            )
+            if cur.rowcount != 1:
+                return False, ""
+        return True, old_name
+
     # ---------- 任务 ----------
     def create_task(self, device_id: str, tool: str, arguments: dict, owner_id: int) -> str:
         task_id = new_id("task")
@@ -723,6 +740,17 @@ class HttpApi:
                 self.hub.audit.log("device_key_reset", actor=actor, ip=src_ip, target=device_id,
                                    result="ok" if key else "fail")
                 return (json_resp(200, {"key": key}) if key
+                        else json_resp(404, {"error": "device not found"}))
+            if op == "rename":
+                name = str(body.get("display_name", "")).strip()
+                if (not name or len(name) > 128
+                        or any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in name)):
+                    return json_resp(400, {"error": "显示名不能为空或过长"})
+                ok, old_name = self.hub.rename_device(device_id, name, owner_id)
+                self.hub.audit.log("device_rename", actor=actor, ip=src_ip, target=device_id,
+                                   detail=("from=%s to=%s" % (old_name, name))[:1000],
+                                   result="ok" if ok else "fail")
+                return (json_resp(200, {"ok": True, "display_name": name}) if ok
                         else json_resp(404, {"error": "device not found"}))
         if path.startswith("/api/admin/devices/") and method == "DELETE":
             device_id = path.split("/")[4]
