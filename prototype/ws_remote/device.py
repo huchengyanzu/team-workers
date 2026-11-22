@@ -185,7 +185,10 @@ async def run(state: DeviceState, once: bool = False) -> None:
                                     except Exception as exc2:
                                         verdict = {"action": "deny", "risk": "red",
                                                    "reason": "策略异常且无法签发确认令牌，拒绝执行: %s" % exc2}
-                            action = verdict.get("action") or "allow"
+                            # 空 action 同样不得降级 allow：容器节点持有宿主 root，
+                            # 策略结果缺失一律视为高危拦截（签令牌时已带 action，
+                            # 此处仅防御 check 将来实现回归返回空 dict 的情况）。
+                            action = verdict.get("action") or "deny"
                             result = None
                             if action == "deny":
                                 result = {"ok": False,
