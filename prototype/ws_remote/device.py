@@ -94,13 +94,10 @@ async def run(state: DeviceState, once: bool = False) -> None:
         if policy_mode == "off":
             policy = None
         else:
-            audit_path = cfg.get("audit_path")
-            if not audit_path and cfg.get("host_root") and Path("/config").is_dir():
-                # 容器端兜底：compose 把 ./config 挂到 /config 并承诺审计随卷持久化；
-                # entrypoint 未写 audit_path 时若用默认 $HOME 会落到容器临时层，重建即丢。
-                audit_path = "/config/policy-audit.jsonl"
+            # audit_path 由 device.json（entrypoint 生成）提供，原样透传给 DockerPolicy；
+            # 不回退到容器内 $HOME 临时层，保证审计随 /config 卷持久化。
             try:
-                policy = DockerPolicy(policy_mode, audit_path=audit_path)
+                policy = DockerPolicy(policy_mode, audit_path=cfg.get("audit_path"))
             except Exception:
                 policy = None  # 策略初始化失败不影响设备主循环，降级为无策略
         info = collect_info()
@@ -168,20 +165,26 @@ async def run(state: DeviceState, once: bool = False) -> None:
                                 # 同时让策略按空参判红（exec 无 command），不降级 allow 绕过。
                                 arguments = {}
 
-                            # ---- 设备端本地策略钩子（服务端无感；异常 fail-closed）----
-                            # 容器节点持有宿主 root，策略不可用时宁可拒绝执行也不能放行：
+                            # ---- 设备端本地策略钩子（服务端无感；容器端异常 fail-closed）----
+                            # 容器节点持有宿主 root，策略不可用时宁可拒绝/要求确认也不能放行：
                             # 任何异常/空返回都不得降级为 allow。三端 policy=None 不进此分支。
-                            verdict = {"action": "allow", "risk": "green"}
-                            try:
-                                if policy is not None:
-                                    verdict = policy.check(tool, arguments) or {
-                                        "action": "deny", "risk": "red",
-                                        "reason": "策略返回空结果，拒绝执行",
-                                    }
-                            except Exception as exc:
-                                verdict = {"action": "deny", "risk": "red",
-                                           "reason": "策略检查异常，拒绝执行: %s" % exc,
-                                           "policy_error": str(exc)}
+                            if policy is None:
+                                verdict = {"action": "allow", "risk": "green"}
+                            else:
+                                try:
+                                    verdict = policy.check(tool, arguments)
+                                    if not isinstance(verdict, dict):
+                                        raise ValueError("策略返回格式异常: %r" % (verdict,))
+                                except Exception as exc:
+                                    # 策略异常绝不降级 allow：先签发一次性确认令牌按红级拦截；
+                                    # 连令牌都签不出时才直接 deny。
+                                    try:
+                                        verdict = policy.issue_confirm_token(
+                                            tool, arguments,
+                                            "策略检查异常，按高危拦截: %s" % exc)
+                                    except Exception as exc2:
+                                        verdict = {"action": "deny", "risk": "red",
+                                                   "reason": "策略异常且无法签发确认令牌，拒绝执行: %s" % exc2}
                             action = verdict.get("action") or "allow"
                             result = None
                             if action == "deny":
