@@ -1,0 +1,880 @@
+<!doctype html>
+<!--
+ * admin.html — Nexus Remote 服务端管理后台（登录后）
+ * 用途：概览 / 设备管理 / 用户管理（仅超管） / 操作日志 / 下载中心 五个视图，左侧导航 + 主内容区。
+ * 对接接口：
+ *   GET    /api/session                        -> {username,role}（401 跳登录）
+ *   POST   /api/logout
+ *   GET    /api/overview                       -> {devices_total,devices_online,tasks_today,last_logs}
+ *   GET    /api/devices                        -> {devices:[...]}
+ *   POST   /api/admin/devices                  body {display_name,platform} -> {device_id,key}
+ *   POST   /api/admin/devices/<id>/enabled     body {enabled}
+ *   POST   /api/admin/devices/<id>/key         -> {key}
+ *   DELETE /api/admin/devices/<id>
+ *   GET    /api/logs?month=YYYYMM&actor=&action=&result=&page=1 -> {rows,total,pages}
+ * 安全：所有服务端数据经 el()/textContent 写入，绝不 innerHTML 拼接不可信内容。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no">
+  <script>
+    // iOS Safari 10+ 会忽略 viewport 的 user-scalable=no，这里仅拦截 WebKit 捏合手势事件；
+    // 不拦截单指滚动、点击、长按与文字选择，保留基本可访问性。
+    if ('ontouchstart' in window) {
+      document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+      document.addEventListener('gesturechange', function (e) { e.preventDefault(); });
+    }
+  </script>
+  <meta name="color-scheme" content="light dark">
+  <title>管理后台 · Nexus Remote</title>
+  <link rel="stylesheet" href="theme.css">
+</head>
+<body>
+  <div class="app">
+    <!-- 左侧导航 -->
+    <aside class="sidebar">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="30" height="30" rx="8" fill="#38bdf8" fill-opacity=".12" stroke="#38bdf8" stroke-opacity=".45"/>
+          <path d="M10 22 16 9 22 22M12.6 17.2h6.8" stroke="#7dd3fc" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="16" cy="9" r="2.3" fill="#e0f2fe"/><circle cx="10" cy="22" r="2.3" fill="#7dd3fc"/><circle cx="22" cy="22" r="2.3" fill="#7dd3fc"/>
+        </svg>
+        <span class="brand-name">Nexus <b>Remote</b></span>
+      </div>
+      <div class="nav-title">工作台</div>
+      <nav class="nav">
+        <button class="nav-item active" data-view="overview">
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5" stroke="currentColor" stroke-width="1.8"/><rect x="14" y="3" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="1.8"/><rect x="14" y="10" width="7" height="11" rx="1.5" stroke="currentColor" stroke-width="1.8"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.8"/></svg></span>
+          <span class="nav-text"><span class="nav-label">总览</span><span class="nav-sub">设备与指令实时快照</span></span>
+        </button>
+        <button class="nav-item" data-view="devices">
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="7.5" cy="10" r="1.2" fill="currentColor"/><path d="M11 10h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+          <span class="nav-text"><span class="nav-label">设备</span><span class="nav-sub">注册、状态与私钥</span></span>
+        </button>
+        <button class="nav-item hidden" id="nav-users" data-view="users">
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="9" cy="8" r="3.2" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16 6.5a3 3 0 0 1 0 5.5M17 14c2.3.6 3.8 2.4 3.8 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+          <span class="nav-text"><span class="nav-label">用户管理</span><span class="nav-sub">账号与权限 · 仅超管</span></span>
+        </button>
+        <button class="nav-item" data-view="logs">
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 4h14M5 9h14M5 14h9M5 19h11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="19" cy="17" r="2.5" stroke="currentColor" stroke-width="1.6"/></svg></span>
+          <span class="nav-text"><span class="nav-label">日志</span><span class="nav-sub">按月归档可追溯</span></span>
+        </button>
+        <button class="nav-item" data-view="downloads">
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+          <span class="nav-text"><span class="nav-label">下载中心</span><span class="nav-sub">设备端与 AI Skill</span></span>
+        </button>
+      </nav>
+      <div class="sidebar-foot">Nexus Remote v0.1.0<br>远程控制中枢</div>
+    </aside>
+
+    <div class="main">
+      <!-- 顶栏 -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="card-title" id="bar-title">概览</div>
+          <button class="btn-refresh" id="btn-refresh" type="button" title="刷新当前视图" aria-label="刷新当前视图"><span class="refresh-ico" aria-hidden="true">↻</span></button>
+        </div>
+        <div class="account-chip">
+          <div class="avatar" id="avatar">?</div>
+          <span class="text-2" id="account-name">—</span>
+          <button class="btn btn-ghost btn-sm" id="btn-change-pwd">修改密码</button>
+          <button class="btn btn-ghost btn-sm" id="btn-logout">退出登录</button>
+        </div>
+      </header>
+
+      <div class="content">
+        <!-- ============ 视图 1：概览 ============ -->
+        <section id="view-overview" class="view">
+          <div class="view-head"><h2>概览</h2><p>设备与操作的实时快照</p></div>
+          <div class="stat-grid">
+            <div class="stat stat-accent"><div class="stat-label">设备总数</div><div class="stat-value" id="stat-total">—</div><div class="stat-foot">已注册设备</div></div>
+            <div class="stat stat-accent"><div class="stat-label">在线设备</div><div class="stat-value" id="stat-online">—</div><div class="stat-foot">当前长链在线</div></div>
+            <div class="stat stat-accent"><div class="stat-label">今日指令</div><div class="stat-value" id="stat-tasks">—</div><div class="stat-foot">今日下发任务数</div></div>
+            <div class="stat stat-accent"><div class="stat-label">最近登录</div><div class="stat-value" id="stat-login" style="font-size:16px;line-height:1.6">—</div><div class="stat-foot">最近一次登录时间</div></div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <div><div class="card-title">最近操作日志</div><div class="card-sub">最新审计记录</div></div>
+              <button class="btn btn-ghost btn-sm" id="goto-logs">查看全部 →</button>
+            </div>
+            <div class="table-wrap"><table class="table">
+              <thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>结果</th></tr></thead>
+              <tbody id="recent-logs-body"></tbody>
+            </table></div>
+          </div>
+        </section>
+
+        <!-- ============ 视图 2：设备管理 ============ -->
+        <section id="view-devices" class="view hidden">
+          <div class="view-head row-between">
+            <div>
+              <h2>设备管理</h2>
+              <p>创建设备、启停控制与私钥重置</p>
+              <div class="ws-endpoint">
+                <span class="ws-endpoint-label">WebSocket 服务地址</span>
+                <code id="ws-endpoint">—</code>
+                <button class="btn btn-ghost btn-sm" id="btn-copy-ws" type="button">复制</button>
+              </div>
+            </div>
+            <button class="btn btn-primary" id="btn-create">+ 创建设备</button>
+          </div>
+          <div class="card">
+            <div class="table-wrap"><table class="table">
+              <thead><tr>
+                <th>显示名</th><th>设备 ID</th><th>平台</th><th>状态</th>
+                <th>最后心跳</th><th>启用</th><th class="nowrap">操作</th>
+              </tr></thead>
+              <tbody id="devices-body"></tbody>
+            </table></div>
+          </div>
+        </section>
+
+        <!-- ============ 视图 3：操作日志 ============ -->
+        <section id="view-logs" class="view hidden">
+          <div class="view-head"><h2>操作日志</h2><p>按月分表归档（logs_YYYYMM），支持按天与多维筛选</p></div>
+          <div class="card card-pad">
+            <div class="filters">
+              <div class="field"><label class="label">日期</label><input id="log-day" class="input input-mono" type="date" title="精确到某一天（本地时区），留空则查询整月"></div>
+              <div class="field"><label class="label">操作人</label><input id="f-actor" class="input" placeholder="全部"></div>
+              <div class="field"><label class="label">动作</label><input id="f-action" class="input" list="action-options" placeholder="全部 / 可输入" autocomplete="off"><datalist id="action-options"></datalist></div>
+              <div class="field"><label class="label">结果</label>
+                <select id="f-result" class="select">
+                  <option value="">全部</option><option value="success">成功</option><option value="fail">失败</option>
+                </select>
+              </div>
+              <button class="btn btn-primary" id="btn-search">查询</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="table-wrap"><table class="table" id="logs-table">
+              <thead><tr><th>时间</th><th>操作人</th><th>来源IP</th><th>动作</th><th>对象</th><th>详情</th><th>结果</th></tr></thead>
+              <tbody id="logs-body"></tbody>
+            </table></div>
+            <div class="pager" style="padding:var(--sp-4) var(--sp-6)">
+              <span class="pager-info" id="pager-info">—</span>
+              <div class="pager-btns">
+                <button class="btn btn-ghost btn-sm" id="page-prev">上一页</button>
+                <span class="pager-info" id="page-indicator">1 / 1</span>
+                <button class="btn btn-ghost btn-sm" id="page-next">下一页</button>
+                <span class="pager-info" style="margin-left:var(--sp-3)">跳至</span>
+                <input id="page-goto" class="input input-mono" type="number" min="1" step="1" style="width:64px;text-align:center" placeholder="页">
+                <button class="btn btn-ghost btn-sm" id="page-goto-btn">跳转</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ 视图 4：用户管理（管理员） ============ -->
+        <section id="view-users" class="view hidden">
+          <div class="view-head row-between">
+            <div><h2>用户管理</h2><p>每个用户只能看到并控制自己的设备；可在此新增账号</p></div>
+            <button class="btn btn-primary" id="btn-user-create">+ 新建用户</button>
+          </div>
+          <div class="card">
+            <div class="table-wrap"><table class="table">
+              <thead><tr>
+                <th>邮箱</th><th>角色</th><th>状态</th><th>控制 Token</th><th>创建时间</th><th class="nowrap">操作</th>
+              </tr></thead>
+              <tbody id="users-body"></tbody>
+            </table></div>
+          </div>
+          <p class="hint" style="margin-top:var(--sp-3)">控制 Token 供该用户的 Agent Skill 使用（REMOTE_TOKEN）；点「复制」可获取当前完整 Token，重置后旧 Token 立即失效。</p>
+        </section>
+
+        <!-- ============ 视图 5：下载中心（纯静态 + UA 检测，不调 API） ============ -->
+        <section id="view-downloads" class="view hidden">
+          <div class="view-head"><h2>下载中心</h2><p>获取设备端程序与 AI Skill；已根据你的系统推荐对应版本</p></div>
+          <div class="notice notice-brand">
+            <span class="notice-icon" aria-hidden="true">ⓘ</span>
+            <span id="dl-detect-bar">正在检测你的系统…</span>
+          </div>
+          <div class="dl-section">
+            <h3 class="dl-section-title">设备端程序<span class="dl-section-sub">安装到被控机器，用于建立远程连接</span></h3>
+            <div id="download-grid" class="download-grid"></div>
+          </div>
+          <div class="dl-section">
+            <h3 class="dl-section-title">AI Skill<span class="dl-section-sub">让 AI 助手远程执行命令、读写文件、管理设备</span></h3>
+            <div id="download-skill" class="download-grid"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast-root"></div>
+
+  <script>
+  (function () {
+    'use strict';
+    function $(id) { return document.getElementById(id); }
+
+    /* ---------- 安全 DOM 构建：所有不可信数据都走 textContent ---------- */
+    function el(tag, opts, kids) {
+      var n = document.createElement(tag); opts = opts || {};
+      if (opts.cls) n.className = opts.cls;
+      if (opts.text != null) n.textContent = String(opts.text);
+      if (opts.title) n.title = opts.title;
+      if (opts.attrs) Object.keys(opts.attrs).forEach(function (k) {
+        if (opts.attrs[k] != null) n.setAttribute(k, opts.attrs[k]);
+      });
+      if (opts.on) Object.keys(opts.on).forEach(function (k) { n.addEventListener(k, opts.on[k]); });
+      if (kids != null) (Array.isArray(kids) ? kids : [kids]).forEach(function (c) {
+        if (c == null || c === false) return;
+        n.appendChild((typeof c === 'string' || typeof c === 'number') ? document.createTextNode(String(c)) : c);
+      });
+      return n;
+    }
+    function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+    function textOf(v) {
+      if (v == null) return '—';
+      if (typeof v === 'object') { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+      return String(v);
+    }
+    function fmtTs(ts) {
+      if (!ts) return '—';
+      var d = new Date(ts);
+      if (!isNaN(d.getTime())) { try { return d.toLocaleString('zh-CN', { hour12: false }); } catch (e) { return d.toISOString(); } }
+      return String(ts);
+    }
+    function isOK(v) {
+      if (typeof v === 'boolean') return v;
+      var s = String(v == null ? '' : v).toLowerCase();
+      return ['success', 'ok', 'true', '1', 'allow', '成功', '允许'].indexOf(s) >= 0;
+    }
+    function badge(text, kind) { return el('span', { cls: 'badge ' + (kind || ''), text: text }); }
+    function resultBadge(v) { var ok = isOK(v); return badge(ok ? '成功' : '失败', ok ? 'badge-success' : 'badge-danger'); }
+    function statusNode(status) {
+      var on = status === 'online';
+      return el('span', { cls: on ? 'status-online' : 'status-offline' }, [el('span', { cls: 'status-dot' }), document.createTextNode(on ? '在线' : '离线')]);
+    }
+    function toast(msg, kind) {
+      var t = el('div', { cls: 'toast ' + (kind === 'err' ? 'toast-err' : 'toast-ok'), text: msg });
+      $('toast-root').appendChild(t);
+      setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 3200);
+    }
+
+    /* ---------- URL 前缀：本机 ''，公网 /remote/ 下为 '/remote' ---------- */
+    var PREFIX = (function () {
+      var p = location.pathname;
+      var m = p.match(/^(.*)\/(?:admin\.html)?\/?$/);
+      return (m && m[1]) ? m[1].replace(/\/$/, '') : '';
+    })();
+    function url(path) { return PREFIX + path; }
+
+    /* ---------- 请求封装：same-origin cookie，401 跳登录 ---------- */
+    async function api(path, opts) {
+      opts = opts || {};
+      var init = { method: opts.method || 'GET', credentials: 'same-origin', headers: {} };
+      if (opts.body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
+      var r = await fetch(url(path), init);
+      if (r.status === 401) { location.replace(url('/login.html')); throw new Error('unauthorized'); }
+      var data = {};
+      try { data = await r.json(); } catch (e) {}
+      if (!r.ok && !data.error) data.error = '请求失败 (' + r.status + ')';
+      return { status: r.status, ok: r.ok, data: data };
+    }
+
+    /* ---------- 弹窗 ---------- */
+    function closeModal() { clear($('modal-root')); }
+    function openModal(inner) {
+      var mask = el('div', { cls: 'modal-mask', on: { click: function (e) { if (e.target === mask) closeModal(); } } });
+      mask.appendChild(inner);
+      clear($('modal-root')); $('modal-root').appendChild(mask);
+    }
+    function modalShell(title, bodyKids, footKids, wide) {
+      var body = el('div', { cls: 'modal-body' }, bodyKids);
+      var foot = el('div', { cls: 'modal-foot' }, footKids);
+      return el('div', { cls: 'modal' + (wide ? ' modal-wide' : '') }, [
+        el('div', { cls: 'modal-head' }, [
+          el('div', { cls: 'modal-title', text: title }),
+          el('button', { cls: 'icon-btn', text: '×', title: '关闭', on: { click: closeModal } })
+        ]), body, foot
+      ]);
+    }
+
+    // 私钥一次性展示框（创建 / 重置共用）
+    function openKeyModal(deviceId, key, heading) {
+      var warn = el('div', { cls: 'notice notice-warning' }, [
+        el('span', { cls: 'notice-icon', text: '⚠' }),
+        el('span', { text: '私钥仅显示这一次！请立即复制并保存到设备端配置，关闭后无法再次查看。' })
+      ]);
+      var box = el('div', { cls: 'key-box' }, [
+        el('div', {}, [el('span', { cls: 'muted', text: 'device_id : ' }), el('span', { text: deviceId || '—' })]),
+        el('div', {}, [el('span', { cls: 'muted', text: 'key       : ' }), el('span', { text: key || '—' })])
+      ]);
+      function copy() {
+        var payload = 'device_id: ' + deviceId + '\nkey: ' + key;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(payload).then(function () { toast('已复制到剪贴板'); }, function () { toast('复制失败，请手动选择', 'err'); });
+        } else { toast('当前环境不支持自动复制，请手动选择', 'err'); }
+      }
+      openModal(modalShell(heading || '设备凭证', [warn, box], [
+        el('button', { cls: 'btn btn-ghost', text: '关闭', on: { click: closeModal } }),
+        el('button', { cls: 'btn btn-primary', text: '复制凭证', on: { click: copy } })
+      ]));
+    }
+
+    // 创建设备弹窗
+    function openCreateModal() {
+      var name = el('input', { cls: 'input', attrs: { placeholder: '例如：机房-01 / 我的 Mac', maxlength: '60' } });
+      // 平台由设备端连接时上报，创建时无需填写（后端 plat 置空）
+      var err = el('div', { cls: 'form-error' });
+      async function submit() {
+        if (!name.value.trim()) { err.textContent = '请填写显示名。'; return; }
+        err.textContent = '';
+        var btn = el('button', { cls: 'btn btn-primary', text: '创建中…' }); btn.disabled = true;
+        try {
+          var res = await api('/api/admin/devices', { method: 'POST', body: { display_name: name.value.trim(), platform: '' } });
+          if (res.data && (res.data.device_id || res.data.key)) {
+            closeModal();
+            openKeyModal(res.data.device_id, res.data.key, '创建成功 · 请保存凭证');
+            loadDevices();
+            toast('设备已创建');
+          } else { err.textContent = res.data.error || '创建失败'; }
+        } catch (e) { if (e.message !== 'unauthorized') err.textContent = '网络异常，请重试'; }
+        finally { btn.disabled = false; btn.textContent = '创建'; }
+      }
+      var modal = modalShell('创建设备', [
+        el('div', { cls: 'field' }, [el('label', { cls: 'label', text: '显示名' }), name]),
+        el('div', { cls: 'field' }, [el('span', { cls: 'hint', text: '平台将在设备首次连接时自动上报，无需在此填写' })]),
+        err
+      ], [
+        el('button', { cls: 'btn btn-ghost', text: '取消', on: { click: closeModal } }),
+        el('button', { cls: 'btn btn-primary', text: '创建', on: { click: submit } })
+      ]);
+      openModal(modal);
+      name.focus();
+    }
+
+    /* ---------- 用户管理（管理员） ---------- */
+    var currentRole = '';
+
+    async function loadUsers() {
+      var tbody = $('users-body'); if (!tbody) return;
+      clear(tbody);
+      try {
+        var res = await api('/api/admin/users');
+        if (!res.ok) { tbody.appendChild(el('tr', {}, [el('td', { text: res.data.error || '加载失败', attrs: { colspan: '6' } })])); return; }
+        var users = res.data.users || [];
+        if (!users.length) { tbody.appendChild(el('tr', {}, [el('td', { text: '暂无用户', attrs: { colspan: '6' } })])); return; }
+        users.forEach(function (u) {
+          var acts = el('div', { cls: 'row gap-2' });
+          acts.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '重置Token', title: '重置该用户的控制 Token',
+            on: { click: function () { resetUserToken(u); } } }));
+          // 超管账号唯一且锁定：不提供改密/禁用/删除（后端也会拒绝禁用/删除唯一超管）
+          if (u.role !== 'admin') {
+            acts.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '改密', on: { click: function () { setUserPassword(u); } } }));
+            acts.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: u.enabled ? '禁用' : '启用',
+              on: { click: function () { toggleUser(u); } } }));
+            acts.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '删除',
+              on: { click: function () { deleteUser(u); } } }));
+          }
+          tbody.appendChild(el('tr', {}, [
+            el('td', { text: u.email || u.username }),
+            el('td', {}, [badge(u.role === 'admin' ? '管理员' : '普通用户', u.role === 'admin' ? 'badge-brand' : 'badge-plain')]),
+            el('td', {}, [badge(u.enabled ? '启用' : '禁用', u.enabled ? 'badge-success' : 'badge-danger')]),
+            el('td', {}, [el('div', { cls: 'row gap-2' }, [
+              el('span', { cls: 'mono', text: u.control_token || '—', title: u.control_token || '' }),
+              el('button', { cls: 'btn btn-ghost btn-sm', text: '复制', title: '复制该用户的完整控制 Token',
+                on: { click: function () { copyUserToken(u); } } })
+            ])]),
+            el('td', { text: (u.created_at || '').slice(0, 10) }),
+            el('td', {}, [acts])
+          ]));
+        });
+      } catch (e) { if (e.message !== 'unauthorized') toast('用户列表加载失败', 'err'); }
+    }
+
+    function copyTextFallback(text, okMsg) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = String(text == null ? '' : text);
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        toast(ok ? (okMsg || '已复制') : '复制失败，请手动选择', ok ? '' : 'err');
+      } catch (e) { toast('复制失败，请手动选择', 'err'); }
+    }
+    function copyText(text, okMsg) {
+      var msg = okMsg || '已复制';
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).then(
+          function () { toast(msg); },
+          function () { copyTextFallback(text, msg); }
+        );
+      }
+      return copyTextFallback(text, msg);
+    }
+    async function copyUserToken(u) {
+      try {
+        var res = await api('/api/admin/users/' + u.id + '/token');
+        if (!res.ok || !res.data.control_token) { toast(res.data.error || '获取 Token 失败', 'err'); return; }
+        copyText(res.data.control_token, '已复制 ' + (u.email || u.username || '该用户') + ' 的 Token');
+      } catch (e) { if (e.message !== 'unauthorized') toast('获取 Token 失败', 'err'); }
+    }
+
+    function showTokenOnce(token, email) {
+      var warn = el('div', { cls: 'notice notice-warning' }, [
+        el('span', { cls: 'notice-icon', text: '⚠' }),
+        el('span', { text: '控制 Token 仅显示这一次！请立即复制交给该用户，关闭后无法再次查看。' })
+      ]);
+      var box = el('div', { cls: 'key-box' }, [
+        el('div', {}, [el('span', { cls: 'muted', text: 'email : ' }), el('span', { text: email || '—' })]),
+        el('div', {}, [el('span', { cls: 'muted', text: 'token : ' }), el('span', { text: token || '—' })])
+      ]);
+      function copy() { copyText(token); }
+      openModal(modalShell('控制 Token · 仅显示一次', [warn, box], [
+        el('button', { cls: 'btn btn-ghost', text: '关闭', on: { click: closeModal } }),
+        el('button', { cls: 'btn btn-primary', text: '复制 Token', on: { click: copy } })
+      ]));
+    }
+
+    function openUserCreateModal() {
+      var name = el('input', { cls: 'input', attrs: { type: 'email', placeholder: '登录邮箱', maxlength: '254', autocomplete: 'off' } });
+      var pwd = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '密码（12 位起，含大小写/数字/符号）', autocomplete: 'new-password' } });
+      // 新建用户一律普通用户（服务端强制），无需展示角色字段
+      var err = el('div', { cls: 'form-error hidden' });
+      async function submit() {
+        err.classList.add('hidden'); err.textContent = '';
+        var mail = name.value.trim();
+        if (!mail || mail.indexOf('@') < 1) { err.textContent = '请填写有效邮箱'; err.classList.remove('hidden'); return; }
+        var btn = document.querySelector('.modal-foot .btn-primary');
+        btn.disabled = true; btn.textContent = '创建中…';
+        try {
+          var res = await api('/api/admin/users', { method: 'POST', body: {
+            email: mail, password: pwd.value } });
+          if (res.ok && res.data.user) {
+            closeModal();
+            showTokenOnce(res.data.user.control_token, res.data.user.email);
+            loadUsers();
+          } else { err.textContent = res.data.error || '创建失败'; err.classList.remove('hidden'); }
+        } catch (e) { if (e.message !== 'unauthorized') { err.textContent = '网络异常'; err.classList.remove('hidden'); } }
+        finally { btn.disabled = false; btn.textContent = '创建'; }
+      }
+      openModal(modalShell('新建用户', [
+        el('div', { cls: 'field' }, [el('label', { cls: 'label', text: '邮箱' }), name]),
+        el('div', { cls: 'field' }, [el('label', { cls: 'label', text: '密码' }), pwd]),
+        err
+      ], [
+        el('button', { cls: 'btn btn-ghost', text: '取消', on: { click: closeModal } }),
+        el('button', { cls: 'btn btn-primary', text: '创建', on: { click: submit } })
+      ]));
+      name.focus();
+    }
+
+    function resetUserToken(u) {
+      if (!confirm('确定重置用户 ' + (u.email||u.username) + ' 的控制 Token 吗？旧 Token 会立即失效。')) return;
+      api('/api/admin/users/' + u.id + '/token', { method: 'POST' }).then(function (res) {
+        if (res.ok) { showTokenOnce(res.data.control_token, u.email||u.username); loadUsers(); }
+        else toast(res.data.error || '重置失败', 'err');
+      }).catch(function (e) { if (e.message !== 'unauthorized') toast('网络异常', 'err'); });
+    }
+
+    function setUserPassword(u) {
+      var pwd = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '新密码（12 位起）', autocomplete: 'new-password' } });
+      var err = el('div', { cls: 'form-error hidden' });
+      function submit() {
+        err.classList.add('hidden'); err.textContent = '';
+        var btn = document.querySelector('.modal-foot .btn-primary');
+        btn.disabled = true; btn.textContent = '提交中…';
+        api('/api/admin/users/' + u.id + '/password', { method: 'POST', body: { new_password: pwd.value } })
+          .then(function (res) {
+            if (res.ok) { closeModal(); toast('密码已更新'); loadUsers(); }
+            else { err.textContent = res.data.error || '失败'; err.classList.remove('hidden'); }
+          }).catch(function (e) { if (e.message !== 'unauthorized') { err.textContent = '网络异常'; err.classList.remove('hidden'); } })
+          .finally(function () { btn.disabled = false; btn.textContent = '保存'; });
+      }
+      openModal(modalShell('设置 ' + (u.email||u.username) + ' 的密码', [
+        el('div', { cls: 'field' }, [el('label', { cls: 'label', text: '新密码' }), pwd]), err
+      ], [
+        el('button', { cls: 'btn btn-ghost', text: '取消', on: { click: closeModal } }),
+        el('button', { cls: 'btn btn-primary', text: '保存', on: { click: submit } })
+      ]));
+    }
+
+    function toggleUser(u) {
+      api('/api/admin/users/' + u.id + '/enabled', { method: 'POST', body: { enabled: !u.enabled } })
+        .then(function (res) { if (res.ok) { toast(u.enabled ? '已禁用' : '已启用'); loadUsers(); } else toast(res.data.error || '失败', 'err'); })
+        .catch(function (e) { if (e.message !== 'unauthorized') toast('网络异常', 'err'); });
+    }
+
+    function deleteUser(u) {
+      if (!confirm('确定删除用户 ' + (u.email||u.username) + ' 吗？该用户需无设备才能删除，此操作不可恢复。')) return;
+      api('/api/admin/users/' + u.id, { method: 'DELETE' })
+        .then(function (res) { if (res.ok) { toast('已删除'); loadUsers(); } else toast(res.data.error || '删除失败', 'err'); })
+        .catch(function (e) { if (e.message !== 'unauthorized') toast('网络异常', 'err'); });
+    }
+
+    /* ---------- 修改密码 ---------- */
+    function openChangePwdModal() {
+      var oldPwd = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '当前密码', autocomplete: 'current-password' } });
+      var newPwd = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '新密码（12 位起）', autocomplete: 'new-password' } });
+      var confirm = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '再次输入新密码', autocomplete: 'new-password' } });
+      var err = el('div', { cls: 'form-error hidden' });
+      function submit() {
+        err.classList.add('hidden'); err.textContent = '';
+        var np = newPwd.value;
+        if (np !== confirm.value) { err.textContent = '两次输入的新密码不一致'; err.classList.remove('hidden'); return; }
+        var btn = document.querySelector('.modal-foot .btn-primary');
+        btn.disabled = true; btn.textContent = '提交中…';
+        api('/api/change-password', { method: 'POST', body: { old_password: oldPwd.value, new_password: np } })
+          .then(function (res) {
+            if (res.data && res.data.ok) { toast('密码已修改，请用新密码重新登录'); setTimeout(function () { location.replace(url('/login.html')); }, 900); }
+            else { err.textContent = (res.data && res.data.error) || '修改失败'; err.classList.remove('hidden'); btn.disabled = false; btn.textContent = '确认修改'; }
+          })
+          .catch(function (e) {
+            if (e.message !== 'unauthorized') { err.textContent = '网络异常，请重试'; err.classList.remove('hidden'); btn.disabled = false; btn.textContent = '确认修改'; }
+          });
+      }
+      var modal = modalShell('修改密码', [
+        el('div', { cls: 'card-sub', text: '需验证当前密码；新密码至少 12 位，含小写、大写、数字和特殊符号。修改后需重新登录。' }),
+        el('div', { cls: 'field' }, [el('label', { cls: 'label', text: '当前密码' }), oldPwd]),
+        el('div', { cls: 'field' }, [el('label', { cls: 'label', text: '新密码' }), newPwd]),
+        el('div', { cls: 'field' }, [el('label', { cls: 'label', text: '确认新密码' }), confirm]),
+        err
+      ], [
+        el('button', { cls: 'btn btn-ghost', text: '取消', on: { click: closeModal } }),
+        el('button', { cls: 'btn btn-primary', text: '确认修改', on: { click: submit } })
+      ]);
+      openModal(modal);
+      oldPwd.focus();
+    }
+
+    /* ---------- 视图：概览 ---------- */
+    function renderRecent(rows) {
+      var body = $('recent-logs-body'); clear(body);
+      if (!rows.length) { body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '5' }, text: '暂无操作记录' })])); return; }
+      rows.slice(0, 8).forEach(function (r) {
+        body.appendChild(el('tr', {}, [
+          el('td', { cls: 'nowrap text-2', text: fmtTs(r.ts) }),
+          el('td', { text: textOf(r.actor) }),
+          el('td', { text: textOf(r.action) }),
+          el('td', { cls: 'truncate', text: textOf(r.target), title: textOf(r.target) }),
+          el('td', {}, [resultBadge(r.result)])
+        ]));
+      });
+    }
+    async function loadOverview() {
+      try {
+        var res = await api('/api/overview'); var d = res.data || {};
+        $('stat-total').textContent = (d.devices_total == null ? '—' : d.devices_total);
+        $('stat-online').textContent = (d.devices_online == null ? '—' : d.devices_online);
+        $('stat-tasks').textContent = (d.tasks_today == null ? '—' : d.tasks_today);
+        var ll = d.last_login;
+        if (!ll && Array.isArray(d.last_logs)) {
+          var hit = null;
+          for (var i = 0; i < d.last_logs.length; i++) {
+            var a = String(d.last_logs[i].action || '').toLowerCase();
+            if (a.indexOf('login') >= 0 || a.indexOf('登录') >= 0) { hit = d.last_logs[i]; break; }
+          }
+          if (hit) ll = hit.ts;
+        }
+        $('stat-login').textContent = ll ? fmtTs(ll) : '—';
+        renderRecent(Array.isArray(d.last_logs) ? d.last_logs : []);
+      } catch (e) { if (e.message !== 'unauthorized') toast('概览加载失败', 'err'); }
+    }
+
+    /* ---------- 视图：设备管理 ---------- */
+    async function loadDevices() {
+      var body = $('devices-body'); clear(body);
+      body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7' } }, [el('span', { cls: 'spinner' })])]));
+      try {
+        var res = await api('/api/devices'); var list = (res.data && res.data.devices) || [];
+        clear(body);
+        if (!list.length) { body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7' }, text: '暂无设备，点击右上角「创建设备」开始' })])); return; }
+        list.forEach(function (d) {
+          var actions = el('div', { cls: 'table-actions' });
+          actions.appendChild(el('button', {
+            cls: 'btn btn-ghost btn-sm', text: d.enabled ? '禁用' : '启用',
+            on: { click: function () { toggleDevice(d.device_id, !d.enabled); } }
+          }));
+          actions.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '重置私钥', on: { click: function () { resetKey(d.device_id); } } }));
+          actions.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '删除', on: { click: function () { deleteDevice(d.device_id, d.display_name); } } }));
+          body.appendChild(el('tr', {}, [
+            el('td', { text: textOf(d.display_name) }),
+            el('td', { cls: 'mono truncate', text: textOf(d.device_id), title: textOf(d.device_id) }),
+            el('td', {}, [badge(textOf(d.platform), 'badge-plain')]),
+            el('td', {}, [statusNode(d.status)]),
+            el('td', { cls: 'nowrap text-2', text: fmtTs(d.last_seen) }),
+            el('td', {}, [d.enabled ? badge('已启用', 'badge-success') : badge('已禁用', 'badge-danger')]),
+            el('td', {}, [actions])
+          ]));
+        });
+      } catch (e) { if (e.message !== 'unauthorized') toast('设备列表加载失败', 'err'); }
+    }
+    async function toggleDevice(id, enabled) {
+      try {
+        var res = await api('/api/admin/devices/' + encodeURIComponent(id) + '/enabled', { method: 'POST', body: { enabled: enabled } });
+        if (res.ok) { toast(enabled ? '设备已启用' : '设备已禁用'); loadDevices(); }
+        else toast(res.data.error || '操作失败', 'err');
+      } catch (e) { if (e.message !== 'unauthorized') toast('网络异常', 'err'); }
+    }
+    async function resetKey(id) {
+      if (!confirm('确定重置该设备私钥吗？重置后当前连接会断开，且旧私钥立即失效。')) return;
+      try {
+        var res = await api('/api/admin/devices/' + encodeURIComponent(id) + '/key', { method: 'POST' });
+        if (res.data && res.data.key) { openKeyModal(id, res.data.key, '新私钥 · 仅显示一次'); loadDevices(); }
+        else toast(res.data.error || '重置失败', 'err');
+      } catch (e) { if (e.message !== 'unauthorized') toast('网络异常', 'err'); }
+    }
+    async function deleteDevice(id, name) {
+      if (!confirm('确定删除设备「' + (name || id) + '」吗？此操作不可撤销。')) return;
+      try {
+        var res = await api('/api/admin/devices/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (res.ok) { toast('设备已删除'); loadDevices(); }
+        else toast(res.data.error || '删除失败', 'err');
+      } catch (e) { if (e.message !== 'unauthorized') toast('网络异常', 'err'); }
+    }
+
+    /* ---------- 视图：操作日志 ---------- */
+    var logPage = 1, logPages = 1;
+    function curMonth() { var d = new Date(); return String(d.getFullYear()) + String(d.getMonth() + 1).padStart(2, '0'); }
+    function dayValue() { return ($('log-day').value || '').trim(); }
+    function scopeLabel() {
+      var day = dayValue();
+      if (day) return day;                       // 精确到天
+      return '整月 ' + curMonth();               // 留空=当前整月
+    }
+    async function loadLogs() {
+      var body = $('logs-body'); clear(body);
+      body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7' } }, [el('span', { cls: 'spinner' })])]));
+      var q = new URLSearchParams();
+      var day = dayValue();
+      if (day) q.set('day', day);                 // 选了具体日期：按天精确过滤
+      else q.set('month', curMonth());            // 否则查当前整月
+      q.set('actor', $('f-actor').value.trim());
+      q.set('action', $('f-action').value.trim());
+      q.set('result', $('f-result').value);
+      q.set('page', String(logPage));
+      try {
+        var res = await api('/api/logs?' + q.toString()); var d = res.data || {};
+        var rows = d.rows || [];
+        clear(body);
+        if (!rows.length) { body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7' }, text: '该条件下暂无日志' })])); }
+        rows.forEach(function (r) {
+          body.appendChild(el('tr', {}, [
+            el('td', { cls: 'nowrap text-2', text: fmtTs(r.ts) }),
+            el('td', { text: textOf(r.actor) }),
+            el('td', { cls: 'mono', text: textOf(r.ip) }),
+            el('td', { text: textOf(r.action) }),
+            el('td', { cls: 'truncate', text: textOf(r.target), title: textOf(r.target) }),
+            el('td', { cls: 'truncate', text: textOf(r.detail), title: textOf(r.detail) }),
+            el('td', {}, [resultBadge(r.result)])
+          ]));
+        });
+        logPages = Math.max(1, Number(d.pages) || 1);
+        if (logPage > logPages) { logPage = logPages; loadLogs(); return; }
+        $('pager-info').textContent = '共 ' + (d.total || 0) + ' 条记录 · ' + scopeLabel();
+        $('page-indicator').textContent = logPage + ' / ' + logPages;
+        $('page-prev').disabled = logPage <= 1;
+        $('page-next').disabled = logPage >= logPages;
+        var goto = $('page-goto');
+        if (goto) { goto.max = String(logPages); goto.value = String(logPage); goto.placeholder = String(logPages); }
+      } catch (e) { if (e.message !== 'unauthorized') toast('日志加载失败', 'err'); }
+    }
+
+    /* ---------- 视图：下载中心（纯静态内容 + UA 检测，不调 API） ---------- */
+    // 下载清单：path 统一走 /downloads/...，由 url() 拼接部署前缀
+    var DOWNLOADS = [
+      { platform: 'mac', glyph: 'M', label: 'macOS', name: '设备端 · macOS App',
+        file: 'Nexus-Remote-Device.app.zip',
+        desc: '图形化安装包，双击安装后在 App 内填入设备 ID 与私钥即可连接。',
+        path: '/downloads/Nexus-Remote-Device.app.zip' },
+      { platform: 'mac', glyph: 'M', label: 'macOS', name: '设备端 · macOS 命令行',
+        file: 'nexus-device-mac',
+        desc: 'Apple Silicon 单文件二进制，适合服务器或无图形界面环境，命令行启动。',
+        path: '/downloads/nexus-device-mac' },
+      { platform: 'win', glyph: 'W', label: 'Windows', name: '设备端 · Windows',
+        file: 'nexus-device-win.exe',
+        desc: 'Windows 可执行程序，下载后按提示配置设备 ID 与私钥。',
+        path: '/downloads/nexus-device-win.exe' },
+      { platform: 'win', glyph: 'W', label: 'Windows', name: 'Windows 配置脚本',
+        file: 'windows-setup.ps1',
+        desc: 'PowerShell 脚本，自动完成 Windows 设备端的安装与开机自启配置。',
+        path: '/downloads/windows-setup.ps1' },
+      { platform: 'linux', glyph: 'L', label: 'Linux', name: '设备端 · Linux',
+        file: 'nexus-device-linux',
+        desc: 'Linux 二进制，适合服务器 / 容器；赋予执行权限后运行。',
+        path: '/downloads/nexus-device-linux' }
+    ];
+    var SKILL_DOWNLOAD = {
+      platform: 'all', glyph: 'AI', label: '通用', name: 'device-remote skill',
+      file: 'device-remote.zip',
+      desc: '给 AI 助手用，安装后可远程执行命令 / 读写文件 / 管理设备。配合「用户管理」中的控制 Token（REMOTE_TOKEN）使用。',
+      path: '/downloads/device-remote.zip'
+    };
+    var PLATFORM_LABEL = { mac: 'macOS', win: 'Windows', linux: 'Linux' };
+
+    // UA 检测：仅在识别到明确平台时给出推荐，识别不出则不打扰
+    function detectPlatform() {
+      var s = (String(navigator.userAgent || '') + ' ' + String(navigator.platform || '')).toLowerCase();
+      if (/macintosh|mac os x|macintel|macppc|mac68k/.test(s)) return 'mac';
+      if (/windows|win32|win64|wow64/.test(s)) return 'win';
+      if (/linux|x11|android/.test(s)) return 'linux';
+      return '';
+    }
+
+    function downloadCard(item, recommended) {
+      var head = el('div', { cls: 'dl-head' }, [
+        el('span', { cls: 'dl-icon', text: item.glyph }),
+        el('div', { cls: 'grow' }, [
+          el('div', { cls: 'dl-title', text: item.name }),
+          el('div', { cls: 'dl-file', text: item.file })
+        ])
+      ]);
+      var foot = el('div', { cls: 'dl-foot' }, [
+        recommended ? badge('推荐（检测到你的系统）', 'badge-brand') : badge(item.label, 'badge-plain'),
+        el('a', {
+          cls: 'btn btn-sm ' + (recommended ? 'btn-primary' : 'btn-ghost'),
+          title: '下载 ' + item.file,
+          attrs: { href: url(item.path), download: '' },
+          text: '⬇ 下载'
+        })
+      ]);
+      return el('div', { cls: 'card dl-card' + (recommended ? ' dl-recommended' : '') }, [
+        head, el('div', { cls: 'dl-desc', text: item.desc }), foot
+      ]);
+    }
+
+    function renderDownloads() {
+      var detected = detectPlatform();
+      var bar = $('dl-detect-bar');
+      if (bar) bar.textContent = detected
+        ? '已检测到你的系统为 ' + PLATFORM_LABEL[detected] + '，对应设备端已置顶并高亮；其他平台包可按需下载。'
+        : '未能识别你的系统，请按实际平台自行选择下方安装包。';
+
+      var grid = $('download-grid');
+      if (grid) {
+        clear(grid);
+        var list = DOWNLOADS.slice();
+        if (detected) list.sort(function (a, b) {
+          return (b.platform === detected ? 1 : 0) - (a.platform === detected ? 1 : 0);
+        });
+        list.forEach(function (item) { grid.appendChild(downloadCard(item, item.platform === detected)); });
+      }
+      var skillBox = $('download-skill');
+      if (skillBox) { clear(skillBox); skillBox.appendChild(downloadCard(SKILL_DOWNLOAD, false)); }
+    }
+
+    /* ---------- 导航与初始化 ---------- */
+    var TITLES = { overview: '概览', devices: '设备管理', logs: '操作日志', users: '用户管理', downloads: '下载中心' };
+    var loaded = {};
+    var currentView = 'overview';
+    function loadView(name) {
+      if (name === 'overview') loadOverview();
+      else if (name === 'devices') loadDevices();
+      else if (name === 'logs') loadLogs();
+      else if (name === 'users') loadUsers();
+      else if (name === 'downloads') renderDownloads();
+    }
+    function switchView(name) {
+      currentView = name;
+      document.querySelectorAll('.nav-item').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-view') === name); });
+      ['overview', 'devices', 'logs', 'users', 'downloads'].forEach(function (v) { $('view-' + v).classList.toggle('hidden', v !== name); });
+      $('bar-title').textContent = TITLES[name] || '';
+      if (!loaded[name]) { loaded[name] = true; loadView(name); }
+    }
+
+    async function init() {
+      try {
+        var r = await fetch(url('/api/session'), { credentials: 'same-origin' });
+        if (!r.ok) { location.replace(url('/login.html')); return; }
+        var d = await r.json();
+        var u = (d && (d.email || d.username)) || '管理员';
+        currentRole = (d && d.role) || '';
+        $('account-name').textContent = u + (currentRole === 'admin' ? ' · 管理员' : '');
+        $('avatar').textContent = String(u).slice(0, 1).toUpperCase();
+        // 用户管理入口仅超管可见：超管主动显示，其余一律隐藏
+        if (currentRole === 'admin') $('nav-users').classList.remove('hidden');
+        else $('nav-users').classList.add('hidden');
+      } catch (e) { location.replace(url('/login.html')); return; }
+
+      // 日期默认今天（精确到天）；清空输入框则查当前整月
+      var now = new Date();
+      $('log-day').value = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+      // 动作下拉候选：从服务端汇总历史出现过的 action（输入仍自由）
+      api('/api/log-actions').then(function (res) {
+        var acts = (res.data && res.data.actions) || [];
+        var dl = $('action-options'); if (!dl) return;
+        dl.innerHTML = '';
+        acts.forEach(function (a) { dl.appendChild(el('option', { attrs: { value: a } })); });
+      }).catch(function () {});
+
+      document.querySelectorAll('.nav-item').forEach(function (b) {
+        b.addEventListener('click', function () { switchView(b.getAttribute('data-view')); });
+      });
+      $('goto-logs').addEventListener('click', function () { switchView('logs'); });
+      $('btn-create').addEventListener('click', openCreateModal);
+      $('btn-user-create').addEventListener('click', openUserCreateModal);
+      $('btn-change-pwd').addEventListener('click', openChangePwdModal);
+      $('btn-search').addEventListener('click', function () { logPage = 1; loadLogs(); });
+      $('page-prev').addEventListener('click', function () { if (logPage > 1) { logPage--; loadLogs(); } });
+      $('page-next').addEventListener('click', function () { if (logPage < logPages) { logPage++; loadLogs(); } });
+      function gotoPage() {
+        var v = parseInt($('page-goto').value, 10);
+        if (isNaN(v) || v < 1) { toast('请输入有效页码', 'err'); return; }
+        if (v > logPages) { v = logPages; }
+        if (v === logPage) return;
+        logPage = v; loadLogs();
+      }
+      $('page-goto-btn').addEventListener('click', gotoPage);
+      $('page-goto').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); gotoPage(); } });
+      $('btn-refresh').addEventListener('click', function () {
+        var b = $('btn-refresh');
+        if (b.disabled) return;
+        // 图标按钮：loading 态用 class + disabled 表达，不再改写按钮文案
+        b.disabled = true;
+        b.classList.add('is-loading');
+        b.title = '刷新中…';
+        loadView(currentView);
+        setTimeout(function () {
+          b.disabled = false;
+          b.classList.remove('is-loading');
+          b.title = '刷新当前视图';
+        }, 500);
+      });
+      $('btn-logout').addEventListener('click', async function () {
+        try { await api('/api/logout', { method: 'POST' }); } catch (e) {}
+        location.replace(url('/login.html'));
+      });
+
+      // WebSocket 地址按当前访问地址动态推导：https→wss、http→ws，主机取域名或 IP，
+      // 前缀取部署子路径（本机 ''，挂在 /remote 下则为 '/remote'），自部署无需改代码。
+      (function renderWsEndpoint() {
+        var node = $('ws-endpoint');
+        var copyBtn = $('btn-copy-ws');
+        if (!node || !copyBtn) return;
+        var endpoint = (location.protocol === 'https:' ? 'wss:' : 'ws:')
+          + '//' + location.host + PREFIX + '/ws';
+        node.textContent = endpoint;
+        node.title = endpoint;
+        copyBtn.addEventListener('click', function () {
+          function done() { toast('WebSocket 地址已复制'); }
+          function fallback() {
+            var ta = document.createElement('textarea');
+            ta.value = endpoint;
+            ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); done(); }
+            catch (e) { toast('复制失败，请手动选中复制', 'err'); }
+            document.body.removeChild(ta);
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(endpoint).then(done).catch(fallback);
+          } else { fallback(); }
+        });
+      })();
+
+      switchView('overview');
+    }
+    init();
+  })();
+  </script>
+</body>
+</html>

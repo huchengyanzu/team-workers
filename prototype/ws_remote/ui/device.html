@@ -1,0 +1,608 @@
+<!doctype html>
+<!--
+ * device.html — Nexus Remote 设备端本地配置页（免登录，运行于设备本机 :18770）
+ * 用途：三步向导配置连接参数 / 命令白名单 / 保存连接；实时连接状态与本机信息。
+ * 对接接口（设备端本地 HTTP 服务，端口 18770）：
+ *   GET  /api/local/config  -> {server_url,device_id,key,display_name,platform,allowlist[]}
+ *   POST /api/local/config  -> 上述完整配置对象（保存后本地服务自动重连）
+ *   GET  /api/local/status  -> {state,last_error,device_id,connected_at}
+ *                              state ∈ unconfigured|connecting|online|offline|auth_failed
+ *   GET  /api/local/info    -> {platform,arch,hostname,python,cpu_count,disk_free_gb}
+ *   GET  /api/local/browse?path= -> {ok,path,parent,dirs[]} 列子目录，供“选择目录”用
+ *   GET  /api/local/autostart  -> {enabled,supported,platform,hint}
+ *   POST /api/local/autostart  -> {ok,enabled,...} 开关开机自启动
+ *   POST /api/local/exit       -> 请求设备端进程退出
+ * 安全：所有数据用 el()/textContent 渲染，私钥输入框默认遮蔽。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>设备配置 · Nexus Remote</title>
+  <link rel="stylesheet" href="theme.css">
+</head>
+<body>
+  <div class="device-shell">
+    <!-- 顶部：品牌 + 免登录标识 -->
+    <div class="device-top">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="30" height="30" rx="8" fill="#38bdf8" fill-opacity=".14" stroke="#38bdf8" stroke-opacity=".5"/>
+          <path d="M10 22 16 9 22 22M12.6 17.2h6.8" stroke="var(--c-brand)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="16" cy="9" r="2.3" fill="var(--c-brand)"/><circle cx="10" cy="22" r="2.3" fill="var(--c-brand)"/><circle cx="22" cy="22" r="2.3" fill="var(--c-brand)"/>
+        </svg>
+        <span class="brand-name">Nexus <b>Remote</b></span>
+      </div>
+      <div class="row gap-2" style="align-items:center;flex-wrap:wrap">
+        <span class="badge badge-brand badge-plain">设备端 · 免登录</span>
+        <label class="switch-row" id="autostart-label" title="登录系统后自动启动设备端（后台运行，不自动弹浏览器）">
+          <span class="switch"><input type="checkbox" id="autostart-toggle"><span class="switch-track"></span></span>
+          <span>开机自启动</span>
+        </label>
+        <button class="btn btn-ghost btn-sm" id="btn-quit" type="button" title="关闭本机设备端进程">退出程序</button>
+      </div>
+    </div>
+
+    <!-- 连接状态 + 本机信息 -->
+    <div class="panel-grid-2" style="margin-bottom:var(--sp-6)">
+      <div class="card card-pad">
+        <div class="status-card">
+          <div class="status-orb" id="status-orb">◌</div>
+          <div class="grow">
+            <div class="card-title" id="status-title">检测中…</div>
+            <div class="card-sub" id="status-desc">正在读取本地连接状态</div>
+            <div id="last-error" class="form-error hidden" style="margin-top:6px"></div>
+          </div>
+          <span class="badge" id="status-badge">—</span>
+        </div>
+      </div>
+      <div class="card card-pad">
+        <div class="card-sub" style="margin-bottom:var(--sp-3)">本机信息</div>
+        <dl class="kv-grid" id="host-info">
+          <div class="kv"><dt>主机名</dt><dd>—</dd></div>
+          <div class="kv"><dt>平台 / 架构</dt><dd>—</dd></div>
+        </dl>
+      </div>
+    </div>
+
+    <!-- 步骤条 -->
+    <div class="steps" id="steps">
+      <button class="step active" data-step="1" type="button"><b>1</b>连接参数</button>
+      <button class="step" data-step="2" type="button"><b>2</b>命令白名单</button>
+      <button class="step" data-step="3" type="button"><b>3</b>保存并连接</button>
+    </div>
+
+    <!-- 步骤 1：连接参数 -->
+    <section id="step-1" class="card card-pad">
+      <div class="card-title">连接参数</div>
+      <div class="card-sub" style="margin-bottom:var(--sp-6)">这些信息由服务端管理后台创建设备时下发</div>
+      <div class="col gap-4">
+        <div class="field">
+          <label class="label" for="server-url">服务端地址</label>
+          <input id="server-url" class="input input-mono" type="text" placeholder="wss://your-server:8765" spellcheck="false">
+          <span class="hint">WebSocket 地址，以 ws:// 或 wss:// 开头</span>
+        </div>
+        <div class="field">
+          <label class="label" for="device-id">设备 ID</label>
+          <input id="device-id" class="input input-mono" type="text" placeholder="dev-xxxxxxxx" spellcheck="false">
+        </div>
+        <div class="field">
+          <label class="label" for="dev-key">私钥 <span id="key-config-badge" class="badge badge-success hidden" style="margin-left:6px">已配置</span></label>
+          <div class="input-affix">
+            <input id="dev-key" class="input input-mono" type="password" placeholder="创建设备时下发的一次性私钥" spellcheck="false" autocomplete="off">
+            <button id="toggle-key" class="affix-btn" type="button">显示</button>
+          </div>
+          <span class="hint" id="key-hint">出于安全不回显已保存的私钥；如不更换，留空即可。</span>
+        </div>
+        <div class="row gap-4" style="align-items:flex-start">
+          <div class="field grow">
+            <label class="label" for="display-name">显示名</label>
+            <input id="display-name" class="input" type="text" placeholder="例如：机房-01 / 我的 Mac" maxlength="60">
+          </div>
+          <div class="field" style="width:170px">
+            <label class="label" for="platform">平台</label>
+            <select id="platform" class="select">
+              <option value="">自动检测</option>
+              <option value="mac">macOS</option><option value="win">Windows</option>
+              <option value="linux">Linux</option><option value="other">其他</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="row-between" style="margin-top:var(--sp-6)">
+        <span class="hint" id="detect-hint">平台将根据本机信息自动填充</span>
+        <button class="btn btn-primary" id="to-2" type="button">下一步：白名单 →</button>
+      </div>
+    </section>
+
+    <!-- 步骤 2：命令白名单 -->
+    <section id="step-2" class="card card-pad hidden">
+      <div class="card-title">命令白名单</div>
+      <div class="card-sub" style="margin-bottom:var(--sp-5)">仅白名单内的命令可被远程执行；留空表示不额外限制（沿用执行内核默认策略）</div>
+      <div class="field">
+        <div class="row-between" style="align-items:center;margin-bottom:6px">
+          <label class="label" style="margin:0">常用命令（勾选允许执行）</label>
+          <div class="cmd-bulk">
+            <button class="btn btn-ghost btn-sm" id="select-all" type="button">全选</button>
+            <button class="btn btn-ghost btn-sm" id="clear-all" type="button">清空</button>
+          </div>
+        </div>
+        <div class="cmd-grid" id="common-cmds"></div>
+      </div>
+      <div class="field" style="margin-top:var(--sp-5)">
+        <label class="label" for="custom-cmd">自定义命令</label>
+        <div class="cmd-add">
+          <input id="custom-cmd" class="input input-mono" type="text" placeholder="输入命令名后回车，例如 uptime" spellcheck="false">
+          <button class="btn btn-ghost" id="add-cmd" type="button">添加</button>
+        </div>
+        <div class="chip-list" id="cmd-chips"></div>
+      </div>
+      <div class="field" style="margin-top:var(--sp-5)">
+        <label class="label">文件工具可访问的目录</label>
+        <div class="seg" id="roots-mode" role="group" aria-label="文件访问范围">
+          <button class="seg-btn active" type="button" data-mode="unrestricted">不限目录（推荐）</button>
+          <button class="seg-btn" type="button" data-mode="restricted">仅指定目录</button>
+        </div>
+        <span class="hint" id="roots-hint">不限制：文件工具可读写这台机器上的任意路径。写入仍需二次确认、单文件上限 8MB。</span>
+        <div id="roots-restricted-box" class="hidden" style="margin-top:var(--sp-2)">
+          <div class="row gap-2" style="align-items:center">
+            <button class="btn btn-ghost btn-sm" id="pick-dir" type="button">＋ 选择目录</button>
+            <span class="hint" id="roots-count">未选择目录</span>
+          </div>
+          <div class="chip-list" id="roots-chips"></div>
+          <span class="hint">点“选择目录”逐层点选；不添加任何目录时等同于“不限目录”。</span>
+        </div>
+      </div>
+      <div class="row-between" style="margin-top:var(--sp-6)">
+        <button class="btn btn-ghost" id="back-1" type="button">← 上一步</button>
+        <button class="btn btn-primary" id="to-3" type="button">下一步：保存 →</button>
+      </div>
+    </section>
+
+    <!-- 步骤 3：保存并连接 -->
+    <section id="step-3" class="card card-pad hidden">
+      <div class="card-title">确认并连接</div>
+      <div class="card-sub" style="margin-bottom:var(--sp-5)">保存后本地服务会立即使用新配置重连服务端</div>
+      <div class="card card-pad" style="box-shadow:none;background:var(--c-surface-2)">
+        <dl class="kv-grid" id="summary"></dl>
+      </div>
+      <div id="save-error" class="form-error" style="margin-top:var(--sp-4)"></div>
+      <div class="row-between" style="margin-top:var(--sp-4)">
+        <button class="btn btn-ghost" id="back-2" type="button">← 上一步</button>
+        <button class="btn btn-primary" id="btn-save" type="button">保存并连接</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- 目录选择器 -->
+  <div id="dir-mask" class="modal-mask hidden">
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-label="选择目录">
+      <div class="modal-head">
+        <span class="modal-title">选择目录</span>
+        <button class="icon-btn" id="dir-close" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <div class="row-between" style="align-items:center">
+            <span class="hint">当前位置</span>
+            <button class="btn btn-ghost btn-sm" id="dir-up" type="button">↑ 上一级</button>
+          </div>
+          <input id="dir-path" class="input input-mono" type="text" placeholder="点击右侧按钮选择起始位置，或直接输入路径后回车" spellcheck="false">
+        </div>
+        <div class="hint">子目录（点击名称进入）</div>
+        <div id="dir-list" class="dir-browser" style="min-height:180px"></div>
+        <div id="dir-error" class="form-error hidden"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="dir-cancel" type="button">取消</button>
+        <button class="btn btn-primary" id="dir-add" type="button">选择此目录</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-root"></div>
+
+  <script>
+  (function () {
+    'use strict';
+    function $(id) { return document.getElementById(id); }
+    // 常用命令按平台区分：Windows 上 POSIX 命令（ls/cat/...）不是独立 exe，
+    // 选它们会导致 exec 全部 FileNotFoundError。默认先给 POSIX，loadInfo 识别到 Windows 后切换。
+    var COMMON_POSIX = ['echo', 'pwd', 'ls', 'whoami', 'cat', 'sleep', 'hostname', 'date', 'uptime', 'uname'];
+    var COMMON_WIN = ['cmd', 'powershell', 'whoami', 'hostname', 'ipconfig', 'tasklist', 'taskkill', 'where', 'python', 'pip', 'git', 'node'];
+    var COMMON = COMMON_POSIX.slice();
+    var allowlist = [];
+    var allowedRoots = [];      // 选中的目录列表；空 = 不限制
+    var rootsMode = 'unrestricted';  // unrestricted | restricted
+    var dirCurrent = '';        // 目录浏览器当前路径
+    var keyConfigured = false;  // 是否已保存过私钥；true 时留空 = 保持原值
+
+    /* ---------- 安全 DOM 构建 ---------- */
+    function el(tag, opts, kids) {
+      var n = document.createElement(tag); opts = opts || {};
+      if (opts.cls) n.className = opts.cls;
+      if (opts.text != null) n.textContent = String(opts.text);
+      if (opts.attrs) Object.keys(opts.attrs).forEach(function (k) { if (opts.attrs[k] != null) n.setAttribute(k, opts.attrs[k]); });
+      if (opts.on) Object.keys(opts.on).forEach(function (k) { n.addEventListener(k, opts.on[k]); });
+      if (kids != null) (Array.isArray(kids) ? kids : [kids]).forEach(function (c) {
+        if (c == null || c === false) return;
+        n.appendChild((typeof c === 'string' || typeof c === 'number') ? document.createTextNode(String(c)) : c);
+      });
+      return n;
+    }
+    function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+    function textOf(v) { return v == null ? '—' : (typeof v === 'object' ? JSON.stringify(v) : String(v)); }
+    function toast(msg, kind) {
+      var t = el('div', { cls: 'toast ' + (kind === 'err' ? 'toast-err' : 'toast-ok'), text: msg });
+      $('toast-root').appendChild(t);
+      setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 3200);
+    }
+
+    async function api(path, opts) {
+      opts = opts || {};
+      var init = { method: opts.method || 'GET', credentials: 'same-origin', headers: { 'X-Local-Config': '1' } };
+      if (opts.body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
+      var r = await fetch(path, init);
+      var data = {}; try { data = await r.json(); } catch (e) {}
+      return { status: r.status, ok: r.ok, data: data };
+    }
+
+    /* ---------- 开机自启动 / 退出程序 ---------- */
+    async function loadAutostart() {
+      try {
+        var res = await api('/api/local/autostart');
+        var d = res.data || {};
+        var box = $('autostart-toggle');
+        box.disabled = !d.supported;
+        box.checked = !!d.enabled;
+        $('autostart-label').title = d.hint || '登录系统后自动启动设备端';
+      } catch (e) { /* 本地服务不可达时保持默认 */ }
+    }
+    async function setAutostart(enabled) {
+      var box = $('autostart-toggle');
+      box.disabled = true;
+      try {
+        var res = await api('/api/local/autostart', { method: 'POST', body: { enabled: enabled } });
+        if (res.ok && res.data && res.data.ok) {
+          box.checked = !!res.data.enabled;
+          toast(enabled ? '已开启开机自启动' : '已关闭开机自启动');
+        } else {
+          box.checked = !enabled;
+          toast((res.data && res.data.error) || '设置失败，请重试', 'err');
+        }
+      } catch (e) {
+        box.checked = !enabled;
+        toast('无法连接本地配置服务', 'err');
+      } finally { box.disabled = false; }
+    }
+    async function quitApp() {
+      if (!window.confirm('确定要退出本机设备端吗？退出后将不再保持在线。')) return;
+      var btn = $('btn-quit');
+      btn.disabled = true; btn.textContent = '退出中…';
+      try {
+        await api('/api/local/exit', { method: 'POST', body: {} });
+        document.body.innerHTML = '<div style="padding:48px;text-align:center;font:16px system-ui;color:var(--c-text)">设备端已退出，可以关闭此页面。</div>';
+      } catch (e) {
+        btn.disabled = false; btn.textContent = '退出程序';
+        toast('退出请求发送失败', 'err');
+      }
+    }
+
+    /* ---------- 步骤切换 ---------- */
+    function gotoStep(n) {
+      for (var i = 1; i <= 3; i++) {
+        $('step-' + i).classList.toggle('hidden', i !== n);
+      }
+      document.querySelectorAll('.step').forEach(function (b) {
+        var k = Number(b.getAttribute('data-step'));
+        b.classList.toggle('active', k === n);
+        b.classList.toggle('done', k < n);
+      });
+      if (n === 3) renderSummary();
+    }
+
+    /* ---------- 连接状态 ---------- */
+    var STATUS = {
+      unconfigured: { title: '未配置', desc: '请填写连接参数并保存', icon: '◌', orb: '', badge: '' },
+      connecting:   { title: '连接中', desc: '正在与服务端建立长链…', icon: '◌', orb: 'connecting', badge: 'badge-warning' },
+      online:       { title: '在线', desc: '已连接，等待接收指令', icon: '✓', orb: 'online', badge: 'badge-success' },
+      offline:      { title: '离线', desc: '连接已断开，将自动重连', icon: '○', orb: '', badge: '' },
+      auth_failed:  { title: '认证失败', desc: '设备 ID 或私钥不正确，请核对后重存', icon: '✕', orb: 'auth_failed', badge: 'badge-danger' }
+    };
+    function applyStatus(s) {
+      s = s || {};
+      var key = s.state || s.status || 'unconfigured';
+      var m = STATUS[key] || STATUS.unconfigured;
+      var orb = $('status-orb');
+      orb.className = 'status-orb' + (m.orb ? ' ' + m.orb : '');
+      if (m.orb === 'connecting') orb.classList.add('status-pulse');
+      orb.textContent = m.icon;
+      $('status-title').textContent = m.title;
+      $('status-desc').textContent = m.desc;
+      var badge = $('status-badge');
+      badge.className = 'badge ' + m.badge;
+      badge.textContent = m.title;
+      var err = $('last-error');
+      if (s.last_error) { err.textContent = '最近错误：' + s.last_error; err.classList.remove('hidden'); }
+      else { err.textContent = ''; err.classList.add('hidden'); }
+    }
+    async function refreshStatus() {
+      try { var res = await api('/api/local/status'); applyStatus(res.data); }
+      catch (e) { /* 轮询失败保持上一次状态 */ }
+    }
+
+    /* ---------- 本机信息 ---------- */
+    function kv(dt, dd) { return el('div', { cls: 'kv' }, [el('dt', { text: dt }), el('dd', { text: textOf(dd) })]); }
+    function detectPlatform() {
+      var ua = navigator.userAgent.toLowerCase();
+      if (ua.indexOf('mac') >= 0) return 'mac';
+      if (ua.indexOf('win') >= 0) return 'win';
+      if (ua.indexOf('linux') >= 0) return 'linux';
+      return '';
+    }
+    async function loadInfo() {
+      try {
+        var res = await api('/api/local/info'); var d = res.data || {};
+        var box = $('host-info'); clear(box);
+        box.appendChild(kv('主机名', d.hostname));
+        box.appendChild(kv('平台 / 架构', (d.platform || '—') + ' / ' + (d.arch || '—')));
+        box.appendChild(kv('Python', d.python));
+        box.appendChild(kv('CPU 核心', d.cpu_count));
+        box.appendChild(kv('可用磁盘', (d.disk_free_gb != null ? d.disk_free_gb + ' GB' : '—')));
+        // 平台自动检测：仅当用户未选择时填入
+        var inferred = d.platform ? String(d.platform).toLowerCase() : detectPlatform();
+        if (inferred && !$('platform').value) {
+          if (inferred.indexOf('darwin') >= 0 || inferred.indexOf('mac') >= 0) $('platform').value = 'mac';
+          else if (inferred.indexOf('win') >= 0) $('platform').value = 'win';
+          else if (inferred.indexOf('linux') >= 0) $('platform').value = 'linux';
+          $('detect-hint').textContent = '已根据本机信息自动识别平台';
+        }
+        // Windows 平台切到 Windows 常用命令集并刷新勾选区，避免全选写入一堆跑不了的 POSIX 命令
+        var isWin = (inferred.indexOf('win') >= 0);
+        COMMON = isWin ? COMMON_WIN.slice() : COMMON_POSIX.slice();
+        if (typeof renderCommon === 'function') renderCommon();
+      } catch (e) { /* 信息展示失败不影响配置 */ }
+    }
+
+    /* ---------- 配置读取 ---------- */
+    async function loadConfig() {
+      try {
+        var res = await api('/api/local/config'); var d = res.data || {};
+        $('server-url').value = d.server_url || '';
+        $('device-id').value = d.device_id || '';
+        // 私钥不回显（连掩码也不显示）：输入框始终留空；已配置时旁边绿标提示，想换直接填新值。
+        keyConfigured = !!d.configured;
+        $('dev-key').value = '';
+        $('key-config-badge').classList.toggle('hidden', !keyConfigured);
+        $('dev-key').placeholder = keyConfigured ? '如需更换，直接填入新私钥；留空则保持不变' : '创建设备时下发的一次性私钥';
+        $('key-hint').textContent = keyConfigured
+          ? '已配置（不回显）。如需更换，直接填入新值即可。'
+          : '首次配置必填，由服务端创建设备时下发。';
+        $('display-name').value = d.display_name || '';
+        if (d.platform) $('platform').value = d.platform;
+        allowedRoots = Array.isArray(d.allowed_roots) ? d.allowed_roots.slice() : [];
+        rootsMode = allowedRoots.length ? 'restricted' : 'unrestricted';
+        setRootsMode(rootsMode, false);
+        renderRoots();
+        allowlist = Array.isArray(d.allowlist) ? d.allowlist.slice() : [];
+        renderCommon(); renderChips();
+      } catch (e) { renderCommon(); renderChips(); }
+    }
+
+    /* ---------- 文件访问范围：模式 + 目录选择器 ---------- */
+    function setRootsMode(mode, announce) {
+      rootsMode = mode;
+      document.querySelectorAll('#roots-mode .seg-btn').forEach(function (b) {
+        b.classList.toggle('active', b.getAttribute('data-mode') === mode);
+      });
+      var restricted = mode === 'restricted';
+      $('roots-restricted-box').classList.toggle('hidden', !restricted);
+      $('roots-hint').textContent = restricted
+        ? '仅指定目录：文件工具只能读写下列目录（点“选择目录”逐层点选）。'
+        : '不限制：文件工具可读写这台机器上的任意路径。写入仍需二次确认、单文件上限 8MB。';
+      if (announce && restricted && !allowedRoots.length) {
+        toast('已切换到“仅指定目录”，请选择至少一个目录', 'err');
+      }
+    }
+
+    function renderRoots() {
+      var box = $('roots-chips'); clear(box);
+      $('roots-count').textContent = allowedRoots.length
+        ? ('已选 ' + allowedRoots.length + ' 个目录') : '未选择目录';
+      if (!allowedRoots.length) {
+        box.appendChild(el('span', { cls: 'hint', text: '（未添加，等同“不限目录”）' }));
+        return;
+      }
+      allowedRoots.forEach(function (p) {
+        box.appendChild(el('span', { cls: 'chip', title: p }, [
+          el('span', { text: p }),
+          el('button', {
+            type: 'button', text: '×', title: '移除',
+            on: { click: function () { allowedRoots = allowedRoots.filter(function (x) { return x !== p; }); renderRoots(); } }
+          })
+        ]));
+      });
+    }
+
+    async function browseDir(path) {
+      var err = $('dir-error'); err.textContent = ''; err.classList.add('hidden');
+      var list = $('dir-list'); clear(list);
+      list.appendChild(el('div', { cls: 'dir-empty', text: '读取中…' }));
+      try {
+        var url = '/api/local/browse' + (path ? ('?path=' + encodeURIComponent(path)) : '');
+        var res = await api(url); var d = res.data || {};
+        if (!d.ok) {
+          err.textContent = d.error || '读取目录失败'; err.classList.remove('hidden');
+          clear(list); list.appendChild(el('div', { cls: 'dir-empty', text: '—' }));
+          return;
+        }
+        dirCurrent = d.path || '';
+        $('dir-path').value = dirCurrent;
+        $('dir-up').disabled = !d.parent;
+        $('dir-up').setAttribute('data-parent', d.parent || '');
+        clear(list);
+        if (!d.dirs.length) {
+          list.appendChild(el('div', { cls: 'dir-empty', text: d.roots ? '未发现可选位置，请在上方直接输入路径' : '（无子目录，可“选择此目录”）' }));
+          return;
+        }
+        d.dirs.forEach(function (item) {
+          list.appendChild(el('button', {
+            cls: 'dir-item', type: 'button',
+            on: { click: function () { browseDir(item.path); } }
+          }, [
+            el('span', { cls: 'dir-ico', text: '▸' }),
+            el('span', { text: item.name })
+          ]));
+        });
+      } catch (e) {
+        err.textContent = '无法连接本地配置服务'; err.classList.remove('hidden');
+        clear(list); list.appendChild(el('div', { cls: 'dir-empty', text: '—' }));
+      }
+    }
+
+    function openDirPicker() {
+      $('dir-mask').classList.remove('hidden');
+      browseDir('');
+    }
+    function closeDirPicker() { $('dir-mask').classList.add('hidden'); }
+    function addCurrentDir() {
+      var p = ($('dir-path').value || dirCurrent || '').trim();
+      if (!p) { toast('请先进入或输入一个目录', 'err'); return; }
+      if (allowedRoots.indexOf(p) >= 0) { toast('该目录已在列表中'); closeDirPicker(); return; }
+      allowedRoots.push(p);
+      renderRoots();
+      closeDirPicker();
+      toast('已添加目录：' + p);
+    }
+
+    /* ---------- 白名单交互 ---------- */
+    function renderCommon() {
+      var box = $('common-cmds'); clear(box);
+      COMMON.forEach(function (cmd) {
+        var cb = el('input', { attrs: { type: 'checkbox', value: cmd } });
+        cb.checked = allowlist.indexOf(cmd) >= 0;
+        cb.addEventListener('change', function () {
+          if (cb.checked) { if (allowlist.indexOf(cmd) < 0) allowlist.push(cmd); }
+          else { allowlist = allowlist.filter(function (x) { return x !== cmd; }); }
+          renderChips();
+        });
+        box.appendChild(el('label', { cls: 'checkbox-row' }, [cb, el('span', { cls: 'mono', text: cmd })]));
+      });
+    }
+    function renderChips() {
+      var box = $('cmd-chips'); clear(box);
+      if (!allowlist.length) { box.appendChild(el('span', { cls: 'hint', text: '尚未选择命令' })); }
+      allowlist.forEach(function (cmd) {
+        box.appendChild(el('span', { cls: 'chip' }, [
+          el('span', { text: cmd }),
+          el('button', {
+            type: 'button', text: '×', title: '移除',
+            on: { click: function () { allowlist = allowlist.filter(function (x) { return x !== cmd; }); renderChips(); renderCommon(); } }
+          })
+        ]));
+      });
+    }
+    function addCustom() {
+      var input = $('custom-cmd');
+      var v = input.value.trim().replace(/\s+/g, '');
+      if (!v) return;
+      if (allowlist.indexOf(v) < 0) allowlist.push(v);
+      input.value = '';
+      renderChips(); renderCommon();
+    }
+    function selectAll() {
+      COMMON.forEach(function (cmd) { if (allowlist.indexOf(cmd) < 0) allowlist.push(cmd); });
+      renderCommon(); renderChips();
+      toast('已全选 ' + COMMON.length + ' 条常用命令');
+    }
+    function clearAll() {
+      allowlist = allowlist.filter(function (x) { return COMMON.indexOf(x) < 0; });
+      renderCommon(); renderChips();
+      toast('已清空常用命令勾选（自定义命令保留）');
+    }
+
+    /* ---------- 摘要与保存 ---------- */
+    function renderSummary() {
+      var box = $('summary'); clear(box);
+      box.appendChild(kv('服务端地址', $('server-url').value.trim() || '—'));
+      box.appendChild(kv('设备 ID', $('device-id').value.trim() || '—'));
+      box.appendChild(kv('显示名', $('display-name').value.trim() || '—'));
+      box.appendChild(kv('平台', $('platform').value || '自动检测'));
+      box.appendChild(kv('私钥', $('dev-key').value ? '本次将更新为新值' : (keyConfigured ? '保持不变（不回显）' : '未配置')));
+      box.appendChild(kv('白名单命令', allowlist.length ? allowlist.join(', ') : '（不额外限制）'));
+      box.appendChild(kv('文件访问范围', (rootsMode === 'restricted' && allowedRoots.length)
+        ? ('仅 ' + allowedRoots.length + ' 个目录：' + allowedRoots.join('; '))
+        : '不限目录（可访问任意路径）'));
+    }
+    async function save() {
+      var err = $('save-error'); err.textContent = '';
+      var cfg = {
+        server_url: $('server-url').value.trim(),
+        device_id: $('device-id').value.trim(),
+        key: $('dev-key').value,
+        display_name: $('display-name').value.trim(),
+        platform: $('platform').value,
+        allowlist: allowlist.slice(),
+        // restricted 模式但一个目录都没选 → 视为不限目录（避免文件工具完全不可用）
+        allowed_roots: (rootsMode === 'restricted' ? allowedRoots.slice() : [])
+      };
+      if (!cfg.server_url || !cfg.device_id) { err.textContent = '服务端地址和设备 ID 为必填项。'; return; }
+      // 仅首次配置（尚无已保存私钥）要求填私钥；已配置时留空 = 保持原值，可直接改其它项
+      if (!keyConfigured && !cfg.key) { err.textContent = '首次配置需填写私钥（由服务端创建设备时下发）。'; return; }
+      if (!/^wss?:\/\//i.test(cfg.server_url)) { err.textContent = '服务端地址需以 ws:// 或 wss:// 开头。'; return; }
+      var btn = $('btn-save'); btn.disabled = true; btn.textContent = '保存中…';
+      try {
+        var res = await api('/api/local/config', { method: 'POST', body: cfg });
+        if (res.ok) { toast('配置已保存，正在连接…'); refreshStatus(); }
+        else { err.textContent = (res.data && res.data.error) || '保存失败，请检查本地服务'; }
+      } catch (e) { err.textContent = '无法连接本地配置服务（:18770），请确认已启动'; }
+      finally { btn.disabled = false; btn.textContent = '保存并连接'; }
+    }
+
+    /* ---------- 事件绑定与初始化 ---------- */
+    document.querySelectorAll('.step').forEach(function (b) {
+      b.addEventListener('click', function () { gotoStep(Number(b.getAttribute('data-step'))); });
+    });
+    $('toggle-key').addEventListener('click', function () {
+      var k = $('dev-key'); var show = k.type === 'password';
+      k.type = show ? 'text' : 'password'; this.textContent = show ? '隐藏' : '显示';
+    });
+    $('to-2').addEventListener('click', function () { gotoStep(2); });
+    $('to-3').addEventListener('click', function () { gotoStep(3); });
+    $('back-1').addEventListener('click', function () { gotoStep(1); });
+    $('back-2').addEventListener('click', function () { gotoStep(2); });
+    $('add-cmd').addEventListener('click', addCustom);
+    $('select-all').addEventListener('click', selectAll);
+    $('clear-all').addEventListener('click', clearAll);
+    $('custom-cmd').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } });
+    $('btn-save').addEventListener('click', save);
+    $('autostart-toggle').addEventListener('change', function () { setAutostart(this.checked); });
+    $('btn-quit').addEventListener('click', quitApp);
+
+    // 文件访问范围
+    document.querySelectorAll('#roots-mode .seg-btn').forEach(function (b) {
+      b.addEventListener('click', function () { setRootsMode(b.getAttribute('data-mode'), true); });
+    });
+    $('pick-dir').addEventListener('click', openDirPicker);
+    $('dir-close').addEventListener('click', closeDirPicker);
+    $('dir-cancel').addEventListener('click', closeDirPicker);
+    $('dir-add').addEventListener('click', addCurrentDir);
+    $('dir-up').addEventListener('click', function () {
+      var parent = this.getAttribute('data-parent');
+      if (parent) browseDir(parent);
+    });
+    $('dir-path').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); browseDir(this.value.trim()); }
+    });
+    $('dir-mask').addEventListener('click', function (e) { if (e.target === this) closeDirPicker(); });
+
+    loadInfo();
+    loadConfig();
+    loadAutostart();
+    refreshStatus();
+    setInterval(refreshStatus, 2500);
+  })();
+  </script>
+</body>
+</html>

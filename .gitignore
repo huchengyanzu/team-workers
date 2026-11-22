@@ -1,0 +1,41 @@
+# ---- 凭证与本地配置（绝不可入库）----
+**/config.local.json
+**/secrets/
+**/*.pem
+**/*.key
+**/.env
+**/.env.*
+!.env.example
+**/known_hosts
+**/*credentials*
+
+# ---- 私有工作记忆（含邮箱、授权码、token 明文）----
+.workbuddy/
+
+# ---- macOS / 编辑器 ----
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# ---- Python / 构建产物 ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+*.pkg
+*.spec.bak
+
+# ---- 发行二进制（走 GitHub Releases，不入库）----
+*.exe
+*.app/
+*.zip
+*.tar.gz
+*.msi
+
+# ---- 日志 ----
+*.log

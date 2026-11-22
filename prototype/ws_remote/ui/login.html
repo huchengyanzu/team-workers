@@ -1,0 +1,513 @@
+<!doctype html>
+<!--
+ * login.html — Nexus Remote 服务端登录页
+ * 用途：账号 + 密码 + 图形验证码登录，展示防暴破剩余次数与锁定状态；
+ *       以及邮箱自助注册（发验证码 → 填验证码/密码/确认密码 → 一次性 token）。
+ * 对接接口：
+ *   GET  /api/session              （已登录则跳转 /admin.html）
+ *   GET  /api/captcha.svg          （验证码图片，点击刷新）
+ *   POST /api/login                body {email,password,captcha} -> {ok,attempts_left,locked_until}
+ *   POST /api/register/send-code   body {email} -> {ok,message}
+ *   POST /api/register/verify      body {email,code,password} -> {ok,control_token,message}
+ * 安全：全部动态文案用 textContent 写入；fetch 统一 credentials:'same-origin'；
+ *       注册 token 仅展示一次，不写入 localStorage/日志。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no">
+  <script>
+    // iOS Safari 10+ 会忽略 viewport 的 user-scalable=no，这里仅拦截 WebKit 捏合手势事件；
+    // 不拦截单指滚动、点击、长按与文字选择，保留基本可访问性。
+    if ('ontouchstart' in window) {
+      document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+      document.addEventListener('gesturechange', function (e) { e.preventDefault(); });
+    }
+  </script>
+  <meta name="color-scheme" content="light dark">
+  <title>登录 · Nexus Remote</title>
+  <link rel="stylesheet" href="theme.css">
+  <style>
+    /* 登录页专属微调（其余复用 theme.css） */
+    .login-inline-brand { margin-bottom: var(--sp-8); }
+    @media (min-width: 861px) { .login-inline-brand { display: none; } }
+    /* 登录/注册切换 */
+    .auth-tabs { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-6);
+                 border-bottom: 1px solid var(--c-border); }
+    .auth-tab { appearance: none; background: transparent; border: 0; border-bottom: 2px solid transparent;
+                padding: 0 4px var(--sp-3); margin-bottom: -1px; cursor: pointer;
+                font-size: 14px; font-weight: 600; color: var(--c-muted); }
+    .auth-tab:hover { color: var(--c-text); }
+    .auth-tab.active { color: var(--c-brand-2); border-bottom-color: var(--c-brand); }
+    /* 邮箱验证码行：输入框 + 发送按钮 + 倒计时 */
+    .code-row { display: flex; gap: var(--sp-2); align-items: stretch; }
+    .code-row .input { flex: 1; min-width: 0; }
+    .code-send { flex: none; min-width: 108px; white-space: nowrap; }
+    /* 一次性 token 展示框 */
+    .token-box { margin-top: var(--sp-4); padding: var(--sp-3) var(--sp-4);
+                 background: var(--c-brand-soft); border: 1px solid var(--c-brand);
+                 border-radius: 8px; word-break: break-all; font-family: var(--font-mono);
+                 font-size: 12px; line-height: 1.5; color: var(--c-brand-2); }
+    .auth-switch-hint { margin-top: var(--sp-5); text-align: center; }
+    .auth-switch-link { background: transparent; border: 0; padding: 0; cursor: pointer;
+                        color: var(--c-brand-2); font-size: 13px; font-weight: 600; }
+    .auth-switch-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="login-shell">
+    <!-- 左侧品牌展示区（窄屏隐藏） -->
+    <aside class="login-aside">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="30" height="30" rx="8" fill="#38bdf8" fill-opacity=".12" stroke="#38bdf8" stroke-opacity=".45"/>
+          <path d="M10 22 16 9 22 22M12.6 17.2h6.8" stroke="#7dd3fc" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="16" cy="9" r="2.3" fill="#e0f2fe"/>
+          <circle cx="10" cy="22" r="2.3" fill="#7dd3fc"/>
+          <circle cx="22" cy="22" r="2.3" fill="#7dd3fc"/>
+        </svg>
+        <span class="brand-name">Nexus <b>Remote</b></span>
+      </div>
+      <div class="login-pitch">
+        <h1>安全掌控<br>每一台远程设备</h1>
+        <p>一个轻量的远程控制中枢：设备即插即上线，指令实时下达，操作全程留痕。</p>
+        <div class="pitch-features">
+          <div class="pitch-feature"><i>✓</i><span>WebSocket 长链，设备状态实时可见</span></div>
+          <div class="pitch-feature"><i>✓</i><span>命令白名单 + 私钥鉴权，最小权限可控</span></div>
+          <div class="pitch-feature"><i>✓</i><span>操作日志按月归档，审计可追溯</span></div>
+        </div>
+      </div>
+      <div class="login-foot">Nexus Remote · 内部管理控制台 · 请妥善保管你的账号</div>
+    </aside>
+
+    <!-- 右侧登录表单 -->
+    <main class="login-panel">
+      <div class="login-card">
+        <div class="brand login-inline-brand">
+          <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="30" height="30" rx="8" fill="#38bdf8" fill-opacity=".14" stroke="#38bdf8" stroke-opacity=".5"/>
+            <path d="M10 22 16 9 22 22M12.6 17.2h6.8" stroke="var(--c-brand)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="16" cy="9" r="2.3" fill="var(--c-brand)"/>
+            <circle cx="10" cy="22" r="2.3" fill="var(--c-brand)"/>
+            <circle cx="22" cy="22" r="2.3" fill="var(--c-brand)"/>
+          </svg>
+          <span class="brand-name">Nexus <b>Remote</b></span>
+        </div>
+
+        <div class="auth-tabs" role="tablist" aria-label="登录或注册">
+          <button id="tab-login" class="auth-tab active" type="button" role="tab" aria-selected="true">登录</button>
+          <button id="tab-register" class="auth-tab" type="button" role="tab" aria-selected="false">注册</button>
+        </div>
+
+        <!-- ============ 登录视图 ============ -->
+        <div id="view-login">
+        <h2>登录管理后台</h2>
+        <p class="lead">请输入账号凭据以继续。所有登录行为均会被记录。</p>
+
+        <!-- 锁定状态展示 -->
+        <div id="lock-banner" class="notice notice-danger hidden" role="alert" style="margin-bottom:var(--sp-4)">
+          <span class="notice-icon">⛔</span>
+          <span id="lock-text"></span>
+        </div>
+        <!-- 防暴破：剩余尝试次数 -->
+        <div id="attempts-notice" class="notice hidden" role="status" style="margin-bottom:var(--sp-4)">
+          <span class="notice-icon">ⓘ</span>
+          <span id="attempts-text"></span>
+        </div>
+
+        <form id="login-form" class="login-form" novalidate>
+          <div class="field">
+            <label class="label" for="username">邮箱</label>
+            <input id="username" class="input" type="email" name="email" autocomplete="username"
+                   placeholder="请输入登录邮箱" spellcheck="false">
+          </div>
+          <div class="field">
+            <label class="label" for="password">密码</label>
+            <div class="input-affix">
+              <input id="password" class="input" type="password" name="password" autocomplete="current-password"
+                     placeholder="请输入密码">
+              <button id="toggle-pw" class="affix-btn" type="button" aria-label="显示或隐藏密码">显示</button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="label" for="captcha">图形验证码</label>
+            <div class="captcha-row">
+              <input id="captcha" class="input input-mono" type="text" name="captcha"
+                     autocomplete="off" placeholder="输入右侧字符" maxlength="8" spellcheck="false">
+              <img id="captcha-img" src="/api/captcha.svg" alt="点击刷新验证码" title="点击刷新验证码">
+            </div>
+            <span class="hint">看不清？点击验证码图片即可刷新</span>
+          </div>
+
+          <div id="form-error" class="form-error" role="alert"></div>
+
+          <button id="submit-btn" class="btn btn-primary btn-block" type="submit">登录</button>
+        </form>
+
+        <p class="auth-switch-hint">还没有账号？<button id="goto-register" class="auth-switch-link" type="button">立即注册</button></p>
+        </div><!-- /view-login -->
+
+        <!-- ============ 注册视图 ============ -->
+        <div id="view-register" class="hidden">
+        <h2>注册新账号</h2>
+        <p class="lead">用邮箱自助注册。验证码将发送到你的邮箱，注册后即可遥控你名下的设备。</p>
+
+        <form id="register-form" class="login-form" novalidate>
+          <div class="field">
+            <label class="label" for="reg-email">邮箱</label>
+            <input id="reg-email" class="input" type="email" name="email" autocomplete="email"
+                   placeholder="请输入邮箱" spellcheck="false">
+          </div>
+          <div class="field">
+            <label class="label" for="reg-code">邮箱验证码</label>
+            <div class="code-row">
+              <input id="reg-code" class="input input-mono" type="text" name="code"
+                     autocomplete="one-time-code" placeholder="6 位验证码" maxlength="6" spellcheck="false">
+              <button id="reg-send" class="btn btn-ghost code-send" type="button">发送验证码</button>
+            </div>
+            <span id="reg-code-hint" class="hint">验证码 5 分钟内有效，60 秒内只能发送一次</span>
+          </div>
+          <div class="field">
+            <label class="label" for="reg-password">密码</label>
+            <div class="input-affix">
+              <input id="reg-password" class="input" type="password" name="password" autocomplete="new-password"
+                     placeholder="请设置密码">
+              <button id="reg-toggle-pw" class="affix-btn" type="button" aria-label="显示或隐藏密码">显示</button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="label" for="reg-password2">确认密码</label>
+            <input id="reg-password2" class="input" type="password" name="password2" autocomplete="new-password"
+                   placeholder="请再次输入密码">
+          </div>
+
+          <div id="reg-error" class="form-error" role="alert"></div>
+          <div id="reg-success" class="notice notice-brand hidden" role="status" style="margin-bottom:var(--sp-3)">
+            <span class="notice-icon">✓</span>
+            <span id="reg-success-text"></span>
+          </div>
+
+          <button id="reg-submit" class="btn btn-primary btn-block" type="submit">注册</button>
+        </form>
+
+        <div id="token-wrap" class="hidden">
+          <p class="hint" style="margin:var(--sp-4) 0 var(--sp-2)">
+            <b>你的控制 token（仅显示这一次，请立即复制保存）：</b>
+          </p>
+          <div id="reg-token" class="token-box"></div>
+          <button id="copy-token" class="btn btn-ghost btn-sm" type="button" style="margin-top:var(--sp-2)">复制 token</button>
+          <p class="hint" style="margin-top:var(--sp-3)">保存后请妥善保管；丢失可在管理台重置。</p>
+          <button id="to-login" class="btn btn-primary btn-block" type="button" style="margin-top:var(--sp-4)">去登录</button>
+        </div>
+
+        <p class="auth-switch-hint">已有账号？<button id="goto-login" class="auth-switch-link" type="button">返回登录</button></p>
+        </div><!-- /view-register -->
+      </div>
+    </main>
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    var locked = false;
+    var lockTimer = null;
+
+    function $(id) { return document.getElementById(id); }
+
+    // URL 前缀：本机直开时为 ''，公网挂在 /remote/ 下时为 '/remote'
+    // 依据当前页面路径推断，页面可能位于 /、/login.html 或 /remote/、/remote/login.html
+    var PREFIX = (function () {
+      var p = location.pathname;
+      var m = p.match(/^(.*)\/(?:login\.html)?\/?$/);
+      return (m && m[1]) ? m[1].replace(/\/$/, '') : '';
+    })();
+    function url(path) { return PREFIX + path; }
+
+    // 统一请求封装：携带同源 cookie，解析 JSON（失败时返回空对象）
+    async function api(path, opts) {
+      opts = opts || {};
+      var init = { method: opts.method || 'GET', credentials: 'same-origin', headers: {} };
+      if (opts.body !== undefined) {
+        init.headers['Content-Type'] = 'application/json';
+        init.body = JSON.stringify(opts.body);
+      }
+      var r = await fetch(url(path), init);
+      var data = {};
+      try { data = await r.json(); } catch (e) {}
+      return { status: r.status, ok: r.ok, data: data };
+    }
+
+    // 验证码：加时间戳杜绝缓存
+    function loadCaptcha() {
+      $('captcha-img').src = url('/api/captcha.svg') + '?t=' + Date.now();
+    }
+
+    function setError(msg) { $('form-error').textContent = msg || ''; }
+    function setRegError(msg) { $('reg-error').textContent = msg || ''; }
+
+    // 登录 / 注册视图切换
+    function showView(which) {
+      var reg = which === 'register';
+      $('view-login').classList.toggle('hidden', reg);
+      $('view-register').classList.toggle('hidden', !reg);
+      $('tab-login').classList.toggle('active', !reg);
+      $('tab-register').classList.toggle('active', reg);
+      $('tab-login').setAttribute('aria-selected', String(!reg));
+      $('tab-register').setAttribute('aria-selected', String(reg));
+      setError(''); setRegError('');
+    }
+
+    // 注册：发送验证码倒计时
+    var codeTimer = null;
+    function startCodeCountdown(sec) {
+      var btn = $('reg-send');
+      btn.disabled = true;
+      var left = sec;
+      btn.textContent = left + ' 秒后重发';
+      if (codeTimer) { clearInterval(codeTimer); codeTimer = null; }
+      codeTimer = setInterval(function () {
+        left -= 1;
+        if (left <= 0) {
+          clearInterval(codeTimer); codeTimer = null;
+          btn.disabled = false; btn.textContent = '发送验证码';
+          return;
+        }
+        btn.textContent = left + ' 秒后重发';
+      }, 1000);
+    }
+
+    function setRegLoading(on) {
+      var b = $('reg-submit');
+      b.disabled = on;
+      b.textContent = on ? '正在注册…' : '注册';
+    }
+
+    function setSendLoading(on) {
+      var b = $('reg-send');
+      if (on) { b.disabled = true; b.textContent = '发送中…'; }
+      else if (!codeTimer) { b.disabled = false; b.textContent = '发送验证码'; }
+    }
+
+    function setLoading(on) {
+      var b = $('submit-btn');
+      b.disabled = on;
+      if (on) {
+        b.textContent = '';
+        var s = document.createElement('span');
+        s.className = 'spinner';
+        b.appendChild(s);
+        b.appendChild(document.createTextNode(' 正在验证…'));
+      } else {
+        b.textContent = '登录';
+      }
+    }
+
+    // 防暴破剩余次数提示
+    function showAttempts(left) {
+      var box = $('attempts-notice');
+      if (typeof left !== 'number' || left <= 0) { box.classList.add('hidden'); return; }
+      box.classList.remove('hidden', 'notice-warning', 'notice-danger');
+      box.classList.add(left <= 1 ? 'notice-danger' : (left <= 3 ? 'notice-warning' : 'notice-brand'));
+      $('attempts-text').textContent = '安全提示：账号仍可尝试 ' + left + ' 次，之后将临时锁定。';
+    }
+
+    // 兼容三种 locked_until 形态：相对秒数 / Unix 秒 / 时间戳或时间字符串
+    function parseUntil(u) {
+      if (u === null || u === undefined || u === '') return null;
+      if (typeof u === 'number') {
+        if (u < 1e9) return new Date(Date.now() + u * 1000);   // 剩余秒数
+        if (u < 1e12) return new Date(u * 1000);               // Unix 秒
+        return new Date(u);                                    // 毫秒时间戳
+      }
+      var d = new Date(u);
+      return isNaN(d.getTime()) ? null : d;                    // ISO / 时间字符串
+    }
+
+    function fmtRemain(ms) {
+      var s = Math.max(0, Math.ceil(ms / 1000));
+      var m = Math.floor(s / 60); s = s % 60;
+      return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    }
+
+    function setLock(u) {
+      var until = parseUntil(u);
+      if (lockTimer) { clearInterval(lockTimer); lockTimer = null; }
+      if (!until || until.getTime() <= Date.now()) {
+        locked = false;
+        $('lock-banner').classList.add('hidden');
+        $('submit-btn').disabled = false;
+        return;
+      }
+      locked = true;
+      var banner = $('lock-banner');
+      banner.classList.remove('hidden');
+      function tick() {
+        var left = until.getTime() - Date.now();
+        if (left <= 0) {
+          clearInterval(lockTimer); lockTimer = null;
+          locked = false;
+          banner.classList.add('hidden');
+          $('submit-btn').disabled = false;
+          loadCaptcha();
+          setError('');
+          return;
+        }
+        $('lock-text').textContent = '账号已临时锁定，请在 ' + fmtRemain(left) + ' 后重试。';
+        $('submit-btn').disabled = true;
+      }
+      tick();
+      lockTimer = setInterval(tick, 1000);
+    }
+
+    // 已登录则直接进后台
+    (async function checkSession() {
+      try {
+        var r = await fetch(url('/api/session'), { credentials: 'same-origin' });
+        if (r.ok) { location.replace(url('/admin.html')); }
+      } catch (e) { /* 后端未就绪时停留在登录页 */ }
+    })();
+
+    // 事件绑定
+    $('captcha-img').addEventListener('click', loadCaptcha);
+    $('toggle-pw').addEventListener('click', function () {
+      var p = $('password');
+      var show = p.type === 'password';
+      p.type = show ? 'text' : 'password';
+      this.textContent = show ? '隐藏' : '显示';
+    });
+
+    // ---- 登录/注册切换 ----
+    $('tab-login').addEventListener('click', function () { showView('login'); });
+    $('tab-register').addEventListener('click', function () { showView('register'); });
+    $('goto-register').addEventListener('click', function () { showView('register'); });
+    $('goto-login').addEventListener('click', function () { showView('login'); });
+    $('to-login').addEventListener('click', function () { location.replace(url('/login.html')); });
+
+    $('reg-toggle-pw').addEventListener('click', function () {
+      var p = $('reg-password');
+      var show = p.type === 'password';
+      p.type = show ? 'text' : 'password';
+      this.textContent = show ? '隐藏' : '显示';
+    });
+
+    // ---- 发送邮箱验证码 ----
+    $('reg-send').addEventListener('click', async function () {
+      setRegError('');
+      var email = $('reg-email').value.trim();
+      if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+        setRegError('请先填写有效的邮箱地址。');
+        $('reg-email').focus(); return;
+      }
+      setSendLoading(true);
+      try {
+        var res = await api('/api/register/send-code', { method: 'POST', body: { email: email } });
+        var d = res.data || {};
+        if (res.ok && d.ok !== false) {
+          $('reg-code-hint').textContent = '验证码已发送到 ' + email + '，请查收（5 分钟内有效）。';
+          startCodeCountdown(60);
+        } else {
+          setRegError(d.error || d.message || '发送失败，请稍后重试。');
+        }
+      } catch (err) {
+        setRegError('网络异常，请检查连接后重试。');
+      } finally {
+        setSendLoading(false);
+      }
+    });
+
+    // ---- 复制 token ----
+    $('copy-token').addEventListener('click', async function () {
+      var t = $('reg-token').textContent.trim();
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(t);
+        } else {
+          var ta = document.createElement('textarea');
+          ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta); ta.select();
+          document.execCommand('copy'); document.body.removeChild(ta);
+        }
+        this.textContent = '已复制';
+      } catch (e) {
+        this.textContent = '复制失败，请手动选中';
+      }
+    });
+
+    // ---- 注册提交 ----
+    $('register-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      setRegError('');
+      var email = $('reg-email').value.trim();
+      var code = $('reg-code').value.trim();
+      var pw = $('reg-password').value;
+      var pw2 = $('reg-password2').value;
+      if (!email || !/^\S+@\S+\.\S+$/.test(email)) { setRegError('请填写有效的邮箱地址。'); return; }
+      if (!code) { setRegError('请填写邮箱验证码。'); return; }
+      if (!pw) { setRegError('请设置密码。'); return; }
+      if (pw !== pw2) { setRegError('两次输入的密码不一致。'); return; }
+      setRegLoading(true);
+      try {
+        var res = await api('/api/register/verify', {
+          method: 'POST', body: { email: email, code: code, password: pw }
+        });
+        var d = res.data || {};
+        if (res.ok && d.ok !== false && d.control_token) {
+          // token 仅此一次展示：用 textContent 写入，不入 localStorage
+          $('reg-token').textContent = d.control_token;
+          $('token-wrap').classList.remove('hidden');
+          $('reg-submit').classList.add('hidden');
+          $('reg-success-text').textContent = '注册成功！账号 ' + email + ' 已创建。';
+          $('reg-success').classList.remove('hidden');
+        } else {
+          setRegError(d.error || d.message || '注册失败，请检查验证码和密码后重试。');
+        }
+      } catch (err) {
+        setRegError('网络异常，请检查连接后重试。');
+      } finally {
+        setRegLoading(false);
+      }
+    });
+
+    $('login-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      if (locked) return;
+      setError('');
+      var email = $('username').value.trim();
+      var password = $('password').value;
+      var captcha = $('captcha').value.trim();
+      if (!email || !password || !captcha) {
+        setError('请填写邮箱、密码和验证码。');
+        return;
+      }
+      setLoading(true);
+      try {
+        var res = await api('/api/login', {
+          method: 'POST',
+          body: { email: email, password: password, captcha: captcha }
+        });
+        var d = res.data || {};
+        // 仅 ok===true 视为成功；兼容「2xx 且响应无 ok 字段」，避免 200+ok:false 误跳转
+        if (d.ok === true || (res.ok && !Object.prototype.hasOwnProperty.call(d, 'ok'))) {
+          location.replace(url('/admin.html')); return;
+        }
+
+        if (typeof d.attempts_left === 'number') showAttempts(d.attempts_left);
+        if (d.locked_until !== undefined && d.locked_until !== null) setLock(d.locked_until);
+        setError(d.error || d.message || '账号、密码或验证码不正确，请重试。');
+        $('captcha').value = '';
+        loadCaptcha();
+        $('captcha').focus();
+      } catch (err) {
+        setError('网络异常，请检查连接后重试。');
+        loadCaptcha();
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    loadCaptcha();
+  })();
+  </script>
+</body>
+</html>
