@@ -1,0 +1,28 @@
+[Unit]
+Description=team-workers remote hub (WebSocket device control)
+Documentation=file:///opt/team-workers/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/team-workers
+EnvironmentFile=/opt/team-workers/.env
+ExecStart=/opt/team-workers/venv/bin/python /opt/team-workers/server.py \
+  --host 127.0.0.1 \
+  --ws-port 18765 \
+  --http-port 18766 \
+  --db /opt/team-workers/data/hub.db \
+  --cookie-secure
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/team-workers/data
+PrivateTmp=yes
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

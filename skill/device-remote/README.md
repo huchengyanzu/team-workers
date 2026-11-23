@@ -76,7 +76,7 @@ python3 scripts/remote.py register-confirm user@example.com 123456 'Str0ng!Pass2
 ```
 
 验证码发到邮箱（5 分钟有效、最多试 5 次、一次性），注册成功后专属 token 自动写入
-`config.local.json`。需服务端已配置 SMTP 邮件。
+`config.local.json`。需服务端已配置 Resend 邮件（统一发信 `no-reply@notify.example.com`）。
 
 本机测试可用 `--base` / `--token` 覆盖环境变量，无需改动全局配置。
 
@@ -139,9 +139,9 @@ python3 scripts/remote.py --json list
 
 本 skill 控制的是**被控机器**上运行的设备端程序。管理台「下载中心」可下载三端单文件程序（无需 Python）：
 
-- **Windows**：`nexus-device-win.exe`，双击运行。
-- **macOS**：`Nexus Remote Device.app`（双击）或 `nexus-device-mac`（终端运行）。
-- **Linux**：`chmod +x nexus-device-linux && ./nexus-device-linux`。
+- **Windows**：`team-workers-device-win.exe`，双击运行。
+- **macOS**：`team-workers-device.app`（双击）或 `team-workers-device-mac`（终端运行）。
+- **Linux**：`chmod +x team-workers-device-linux && ./team-workers-device-linux`。
 
 **首次配置**：运行后自动打开本地配置页 `http://127.0.0.1:18770/`（只绑回环），
 填入服务端地址 `wss://hub.example.com/ws`、设备 ID 与私钥（管理台「设备管理 → 创建设备」下发，私钥只显示一次），

@@ -91,13 +91,13 @@ offline（status != online、下发返回 409、心跳超时）必须明确回�
 
 | 平台 | 文件 | 运行 |
 |---|---|---|
-| Win x86_64 | `nexus-device-win.exe` | 双击（首次自动开配置页） |
-| macOS | `nexus-device-mac` / `Nexus Remote Device.app` | `./nexus-device-mac` 或双击 app |
-| Linux x86_64 | `nexus-device-linux` | `chmod +x nexus-device-linux && ./nexus-device-linux` |
+| Win x86_64 | `team-workers-device-win.exe` | 双击（首次自动开配置页） |
+| macOS | `team-workers-device-mac` / `team-workers-device.app` | `./team-workers-device-mac` 或双击 app |
+| Linux x86_64 | `team-workers-device-linux` | `chmod +x team-workers-device-linux && ./team-workers-device-linux` |
 
 首次配置：运行后自动开 `http://127.0.0.1:18770/`（占用顺延，只绑回环）→ 填服务端 `wss://hub.example.com/ws`（必须 `/ws` 结尾，写成 `/cn/ws` 会 404 离线）+ 设备 ID/私钥（管理台「创建设备」下发，只显示一次）+ 白名单全选 + 文件范围不限 → 「保存并连接」，显示「在线」即成功。
 
 Win 备用：配置页报 `CSRF check failed` 时用 `windows-setup.ps1` 直接写配置绕过页面。
 配置页有「开机自启动」（Win 写 HKCU Run；mac 写 LaunchAgent，后台启动不弹浏览器）和「退出程序」。
-手动抑制弹浏览器：`--no-browser`（三端）或 Mac `NEXUS_NO_BROWSER=1`。
+手动抑制弹浏览器：`--no-browser`（三端）或 Mac `TEAM_WORKERS_NO_BROWSER=1`。
 上线后用 `list` 找 device_id 即可 exec / 文件工具。

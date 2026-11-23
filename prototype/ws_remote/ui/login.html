@@ -2,15 +2,20 @@
 <!--
  * login.html — team-workers 服务端登录页
  * 用途：账号 + 密码 + 图形验证码登录，展示防暴破剩余次数与锁定状态；
- *       以及邮箱自助注册（发验证码 → 填验证码/密码/确认密码 → 一次性 token）。
+ *       以及邮箱自助注册（发验证码 → 填验证码/密码/确认密码 → 一次性 token）；
+ *       以及三步式找回密码（验证邮箱 → 设置新密码 → 成功态）。
  * 对接接口：
  *   GET  /api/session              （已登录则跳转 /admin.html）
- *   GET  /api/captcha.svg          （验证码图片，点击刷新）
+ *   GET  /api/captcha.svg          （验证码图片，点击刷新；登录与找回共用 captcha_id cookie）
  *   POST /api/login                body {email,password,captcha} -> {ok,attempts_left,locked_until}
  *   POST /api/register/send-code   body {email} -> {ok,message}
  *   POST /api/register/verify      body {email,code,password} -> {ok,control_token,message}
+ *   POST /api/forgot/send-code     body {email,captcha} -> {ok,message}，60s 冷却 / 429
+ *   POST /api/forgot/reset         body {email,code,new_password} -> {ok,message}
  * 安全：全部动态文案用 textContent 写入；fetch 统一 credentials:'same-origin'；
- *       注册 token 仅展示一次，不写入 localStorage/日志。
+ *       注册 token 仅展示一次，不写入 localStorage/日志；
+ *       找回发码成功/邮箱不存在统一文案，避免账号枚举；
+ *       密码强度规则与 server.py check_password_strength 一致（12 位 + 四类字符齐全）。
 -->
 <html lang="zh-CN">
 <head>
@@ -52,6 +57,26 @@
     .auth-switch-link { background: transparent; border: 0; padding: 0; cursor: pointer;
                         color: var(--c-brand-2); font-size: 13px; font-weight: 600; }
     .auth-switch-link:hover { text-decoration: underline; }
+    /* 密码 label 行：左标签 + 右「忘记密码？」 */
+    .label-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+    /* 找回密码：顶部返回登录 */
+    .fgt-back { display: inline-block; margin-bottom: var(--sp-5); }
+    /* 找回 S1 图形验证码：theme.css 的 #captcha-img 是 id 选择器，此处为第二张图补齐同款样式 */
+    #fgt-captcha-img {
+      width: 118px; height: 40px; flex: none; object-fit: cover;
+      border: 1px solid var(--c-border-strong); border-radius: var(--r-sm);
+      background: var(--c-surface-2); cursor: pointer; user-select: none;
+      transition: border-color .15s;
+    }
+    #fgt-captcha-img:hover { border-color: var(--c-brand); }
+    /* 密码强度：3 段进度条 + 文案（token 全部复用 theme.css，自动适配暗色） */
+    .pw-strength { display: flex; align-items: center; gap: var(--sp-2); margin-top: -2px; }
+    .pw-strength-bars { display: flex; gap: 4px; flex: none; }
+    .pw-bar { width: 26px; height: 4px; border-radius: var(--r-pill); background: var(--c-border); transition: background .15s; }
+    .pw-bar.is-weak { background: var(--c-danger); }
+    .pw-bar.is-mid { background: var(--c-warning); }
+    .pw-bar.is-strong { background: var(--c-success); }
+    @media (max-width: 380px) { .code-send { min-width: 92px; padding: 0 var(--sp-2); } }
   </style>
 </head>
 <body>
@@ -127,7 +152,10 @@
                    placeholder="请输入登录邮箱" spellcheck="false">
           </div>
           <div class="field">
-            <label class="label" for="password">密码</label>
+            <div class="label-row">
+              <label class="label" for="password">密码</label>
+              <button id="forgot-link" class="auth-switch-link" type="button">忘记密码？</button>
+            </div>
             <div class="input-affix">
               <input id="password" class="input" type="password" name="password" autocomplete="current-password"
                      placeholder="请输入密码">
@@ -208,6 +236,84 @@
         <p class="auth-switch-hint">已有账号？<button id="goto-login" class="auth-switch-link" type="button">返回登录</button></p>
         </div><!-- /view-register -->
 
+        <!-- ============ 找回密码视图（三步向导） ============ -->
+        <div id="view-forgot" class="hidden">
+        <button id="fgt-back" class="auth-switch-link fgt-back" type="button">← 返回登录</button>
+        <h2>找回密码</h2>
+        <p class="lead">通过注册邮箱验证身份，重设登录密码。</p>
+
+        <!-- 复用 theme.css 的 .steps / .step 进度指示（device.html 已用同款） -->
+        <div id="fgt-steps" class="steps" role="group" aria-label="找回密码进度">
+          <span id="fgt-ind1" class="step active"><b>1</b>验证邮箱</span>
+          <span id="fgt-ind2" class="step"><b>2</b>设置新密码</span>
+          <span id="fgt-ind3" class="step"><b>3</b>完成</span>
+        </div>
+
+        <!-- S1：验证邮箱（邮箱 + 图形验证码 + 获取验证码） -->
+        <form id="fgt-form1" class="login-form" novalidate>
+          <div class="field">
+            <label class="label" for="fgt-email">注册邮箱</label>
+            <input id="fgt-email" class="input" type="email" name="email" autocomplete="email"
+                   placeholder="请输入注册时使用的邮箱" spellcheck="false">
+          </div>
+          <div class="field">
+            <label class="label" for="fgt-captcha">图形验证码</label>
+            <div class="captcha-row">
+              <input id="fgt-captcha" class="input input-mono" type="text" name="captcha"
+                     autocomplete="off" placeholder="输入右侧字符" maxlength="8" spellcheck="false">
+              <img id="fgt-captcha-img" src="/api/captcha.svg" alt="点击刷新验证码" title="点击刷新验证码">
+            </div>
+            <span id="fgt-hint1" class="hint">看不清？点击验证码图片即可刷新</span>
+          </div>
+          <div id="fgt-error1" class="form-error" role="alert"></div>
+          <button id="fgt-send" class="btn btn-primary btn-block" type="submit">获取验证码</button>
+        </form>
+
+        <!-- S2：设置新密码（邮箱验证码 + 新密码 + 确认密码 + 强度条） -->
+        <form id="fgt-form2" class="login-form hidden" novalidate>
+          <div class="field">
+            <label class="label" for="fgt-code">邮箱验证码</label>
+            <div class="code-row">
+              <input id="fgt-code" class="input input-mono" type="text" name="code"
+                     autocomplete="one-time-code" placeholder="6 位验证码" maxlength="6" spellcheck="false">
+              <button id="fgt-resend" class="btn btn-ghost code-send" type="button">重新获取</button>
+            </div>
+            <span id="fgt-code-hint" class="hint" role="status">如果该邮箱已注册，验证码邮件已发出，请查收（5 分钟内有效）。</span>
+          </div>
+          <div class="field">
+            <label class="label" for="fgt-password">新密码</label>
+            <div class="input-affix">
+              <input id="fgt-password" class="input" type="password" name="new_password"
+                     autocomplete="new-password" placeholder="请设置新密码"
+                     aria-describedby="fgt-pw-rules fgt-pw-strength">
+              <button id="fgt-toggle-pw" class="affix-btn" type="button" aria-label="显示或隐藏新密码">显示</button>
+            </div>
+            <span id="fgt-pw-rules" class="hint">至少 12 位，包含小写字母、大写字母、数字和特殊符号</span>
+            <div id="fgt-pw-strength" class="pw-strength" role="status" aria-live="polite">
+              <div class="pw-strength-bars" aria-hidden="true"><i class="pw-bar"></i><i class="pw-bar"></i><i class="pw-bar"></i></div>
+              <span id="fgt-pw-strength-text" class="hint"></span>
+            </div>
+          </div>
+          <div class="field">
+            <label class="label" for="fgt-password2">确认新密码</label>
+            <input id="fgt-password2" class="input" type="password" name="password2"
+                   autocomplete="new-password" placeholder="请再次输入新密码">
+          </div>
+          <div id="fgt-error2" class="form-error" role="alert"></div>
+          <button id="fgt-submit" class="btn btn-primary btn-block" type="submit">确认重置</button>
+        </form>
+
+        <!-- S3：成功（文案按团队裁决：会话全部失效、token 不受影响） -->
+        <div id="fgt-pane3" class="hidden" role="status">
+          <div class="notice notice-brand" style="margin-bottom:var(--sp-4)">
+            <span class="notice-icon">✓</span>
+            <span id="fgt-success-text">密码已重置。</span>
+          </div>
+          <p class="hint" style="margin-bottom:var(--sp-4)">为安全起见，你其他设备的登录状态已退出；控制 token 不受影响，设备无需重新配置，请用新密码重新登录。</p>
+          <button id="fgt-to-login" class="btn btn-primary btn-block" type="button">返回登录</button>
+        </div>
+        </div><!-- /view-forgot -->
+
         <!-- 窄屏补充：aside 在 ≤860px 隐藏，登录卡片底部保留公开可见的项目入口 -->
         <div class="login-card-gh">
           <a class="gh-link gh-link--on-surface" href="https://github.com/huchengyanzu/team-workers" target="_blank" rel="noopener noreferrer" title="在 GitHub 查看项目源码（新窗口打开）" aria-label="在 GitHub 查看 team-workers 项目源码，新窗口打开">
@@ -225,6 +331,7 @@
 
     var locked = false;
     var lockTimer = null;
+    var authTabsEl = document.querySelector('.auth-tabs');
 
     function $(id) { return document.getElementById(id); }
 
@@ -259,16 +366,20 @@
     function setError(msg) { $('form-error').textContent = msg || ''; }
     function setRegError(msg) { $('reg-error').textContent = msg || ''; }
 
-    // 登录 / 注册视图切换
+    // 登录 / 注册 / 找回密码视图切换（找回是登录子流程，进入时隐藏整个 tab 栏）
     function showView(which) {
       var reg = which === 'register';
-      $('view-login').classList.toggle('hidden', reg);
+      var fgt = which === 'forgot';
+      $('view-login').classList.toggle('hidden', reg || fgt);
       $('view-register').classList.toggle('hidden', !reg);
-      $('tab-login').classList.toggle('active', !reg);
+      $('view-forgot').classList.toggle('hidden', !fgt);
+      authTabsEl.classList.toggle('hidden', fgt);
+      $('tab-login').classList.toggle('active', which === 'login');
       $('tab-register').classList.toggle('active', reg);
-      $('tab-login').setAttribute('aria-selected', String(!reg));
+      $('tab-login').setAttribute('aria-selected', String(which === 'login'));
       $('tab-register').setAttribute('aria-selected', String(reg));
       setError(''); setRegError('');
+      setFgtError1(''); setFgtError2('');
     }
 
     // 注册：发送验证码倒计时
@@ -314,6 +425,170 @@
       } else {
         b.textContent = '登录';
       }
+    }
+
+    // ============ 找回密码（三步向导） ============
+
+    // 与 server.py:163 check_password_strength 完全对齐：>=12 位 + 小写/大写/数字/特殊符号齐全
+    var PW_RULES = { min_len: 12, require_lower: true, require_upper: true, require_digit: true, require_special: true };
+    // 后端 str.islower()/isupper()/isdigit()/isalnum() 是 Unicode 感知的；老浏览器回落 ASCII 判定
+    var CHAR_CLASS = (function () {
+      try {
+        if (/\p{Ll}/u.test('a')) {
+          return { lower: /\p{Ll}/u, upper: /\p{Lu}/u, digit: /\p{Nd}/u, special: /[^\p{L}\p{N}]/u };
+        }
+      } catch (e) {}
+      return { lower: /[a-z]/, upper: /[A-Z]/, digit: /[0-9]/, special: /[^A-Za-z0-9]/ };
+    })();
+
+    function pwMissing(pw) {
+      var miss = [];
+      if (pw.length < PW_RULES.min_len) miss.push('至少 12 位');
+      if (!CHAR_CLASS.lower.test(pw)) miss.push('小写字母');
+      if (!CHAR_CLASS.upper.test(pw)) miss.push('大写字母');
+      if (!CHAR_CLASS.digit.test(pw)) miss.push('数字');
+      if (!CHAR_CLASS.special.test(pw)) miss.push('特殊符号');
+      return miss;
+    }
+
+    function updatePwStrength() {
+      var pw = $('fgt-password').value;
+      var bars = $('fgt-pw-strength').querySelectorAll('.pw-bar');
+      var level = 0, cls = '', text = '';
+      if (pw) {
+        var miss = pwMissing(pw);
+        if (miss.length === 0) {
+          level = 3; cls = ' strong'; text = '强度：强 · 已满足全部规则';
+        } else if (miss.length <= 2) {
+          level = 2; cls = ' mid'; text = '强度：中 · 还需' + miss.join('、');
+        } else {
+          level = 1; cls = ' weak'; text = '强度：弱 · 还需' + miss.join('、');
+        }
+      }
+      for (var i = 0; i < bars.length; i++) {
+        bars[i].className = 'pw-bar' + (i < level ? cls : '');
+      }
+      $('fgt-pw-strength-text').textContent = text;
+    }
+
+    function setFgtError1(msg) { $('fgt-error1').textContent = msg || ''; }
+    function setFgtError2(msg) { $('fgt-error2').textContent = msg || ''; }
+
+    function fgtErrByStatus(res, d, fallback) {
+      if (res.status === 429) {
+        var s = Number(d.retry_after);
+        if (s > 0) { startFgtCountdown(s); return '操作过于频繁，请 ' + s + ' 秒后重试。'; }
+        return d.error || '操作过于频繁，请稍后重试。';
+      }
+      if (res.status === 503) return '服务暂时不可用，请稍后重试。';
+      return d.error || d.message || fallback;
+    }
+
+    function clearFgtInvalid() {
+      ['fgt-email','fgt-captcha','fgt-code','fgt-password','fgt-password2'].forEach(function (id) {
+        $(id).removeAttribute('aria-invalid');
+      });
+    }
+    function markFgtInvalid(id) { $(id).setAttribute('aria-invalid', 'true'); }
+
+    // 图形验证码：与登录共用 /api/captcha.svg 与 captcha_id cookie，点击刷新
+    function loadFgtCaptcha() {
+      $('fgt-captcha-img').src = url('/api/captcha.svg') + '?t=' + Date.now();
+    }
+
+    var fgtCodeTimer = null;
+    var fgtLeft = 0;
+    var fgtSending = false;
+    var fgtSubmitting = false;
+    var fgtStep = 1;
+
+    // 两个发送入口（S1 获取验证码 / S2 重新获取）共用同一倒计时，避免双 timer 互相覆盖
+    function paintFgtCountdown() {
+      var txt = fgtLeft > 0 ? (fgtLeft + ' 秒后重发') : null;
+      var s = $('fgt-send'), r = $('fgt-resend');
+      s.disabled = fgtLeft > 0;
+      s.textContent = txt || '获取验证码';
+      r.disabled = fgtLeft > 0;
+      r.textContent = txt || '重新获取';
+    }
+    function clearFgtCountdown() {
+      if (fgtCodeTimer) { clearInterval(fgtCodeTimer); fgtCodeTimer = null; }
+      fgtLeft = 0;
+      paintFgtCountdown();
+    }
+    function startFgtCountdown(sec) {
+      clearFgtCountdown();
+      fgtLeft = sec;
+      paintFgtCountdown();
+      fgtCodeTimer = setInterval(function () {
+        fgtLeft -= 1;
+        if (fgtLeft <= 0) { clearFgtCountdown(); return; }
+        paintFgtCountdown();
+      }, 1000);
+    }
+
+    function setFgtSendLoading(on) {
+      ['fgt-send','fgt-resend'].forEach(function (id) {
+        var b = $(id);
+        if (on) { b.disabled = true; b.textContent = '发送中…'; }
+        else if (fgtCodeTimer) { b.disabled = true; b.textContent = fgtLeft + ' 秒后重发'; }
+        else { b.disabled = false; b.textContent = (id === 'fgt-send' ? '获取验证码' : '重新获取'); }
+      });
+    }
+    function setFgtLoading(on) {
+      var b = $('fgt-submit');
+      b.disabled = on;
+      if (on) {
+        b.textContent = '';
+        var sp = document.createElement('span');
+        sp.className = 'spinner';
+        b.appendChild(sp);
+        b.appendChild(document.createTextNode(' 正在重置…'));
+      } else {
+        b.textContent = '确认重置';
+      }
+    }
+
+    function showFgtStep(n) {
+      fgtStep = n;
+      $('fgt-form1').classList.toggle('hidden', n !== 1);
+      $('fgt-form2').classList.toggle('hidden', n !== 2);
+      $('fgt-pane3').classList.toggle('hidden', n !== 3);
+      $('fgt-ind1').className = 'step' + (n === 1 ? ' active' : ' done');
+      $('fgt-ind2').className = 'step' + (n === 2 ? ' active' : (n > 2 ? ' done' : ''));
+      $('fgt-ind3').className = 'step' + (n === 3 ? ' active' : '');
+      var first = n === 1 ? 'fgt-email' : (n === 2 ? 'fgt-code' : 'fgt-to-login');
+      requestAnimationFrame(function () { $(first).focus(); });
+    }
+
+    function resetFgtFlow() {
+      clearFgtCountdown();
+      fgtSending = false; fgtSubmitting = false;
+      $('fgt-form1').reset();
+      $('fgt-form2').reset();
+      $('fgt-password').type = 'password';
+      $('fgt-toggle-pw').textContent = '显示';
+      setFgtError1(''); setFgtError2('');
+      clearFgtInvalid();
+      $('fgt-hint1').textContent = '看不清？点击验证码图片即可刷新';
+      $('fgt-code-hint').textContent = '如果该邮箱已注册，验证码邮件已发出，请查收（5 分钟内有效）。';
+      $('fgt-success-text').textContent = '密码已重置。';
+      updatePwStrength();
+      setFgtLoading(false);
+      paintFgtCountdown();
+      loadFgtCaptcha();
+      showFgtStep(1);
+    }
+
+    function backToLoginFromFgt() {
+      clearFgtCountdown();
+      showView('login');
+      var email = $('fgt-email').value.trim();
+      if (/^\S+@\S+\.\S+$/.test(email)) $('username').value = email;
+      $('password').value = '';
+      $('captcha').value = '';
+      loadCaptcha();
+      requestAnimationFrame(function () { $('password').focus(); });
     }
 
     // 防暴破剩余次数提示
@@ -402,6 +677,132 @@
       var show = p.type === 'password';
       p.type = show ? 'text' : 'password';
       this.textContent = show ? '隐藏' : '显示';
+    });
+
+    // ---- 找回密码：入口 / 返回 / 密码显示 / ARIA / 重新获取 ----
+    $('forgot-link').addEventListener('click', function () {
+      showView('forgot');
+      resetFgtFlow();
+    });
+    $('fgt-back').addEventListener('click', backToLoginFromFgt);
+    $('fgt-to-login').addEventListener('click', backToLoginFromFgt);
+    $('fgt-captcha-img').addEventListener('click', loadFgtCaptcha);
+    $('fgt-toggle-pw').addEventListener('click', function () {
+      var p = $('fgt-password');
+      var show = p.type === 'password';
+      p.type = show ? 'text' : 'password';
+      this.textContent = show ? '隐藏' : '显示';
+    });
+    $('fgt-password').addEventListener('input', updatePwStrength);
+    ['fgt-email','fgt-captcha','fgt-code','fgt-password','fgt-password2'].forEach(function (id) {
+      $(id).addEventListener('input', function () { $(id).removeAttribute('aria-invalid'); });
+    });
+    // S2 的「重新获取」回到 S1 重新过图形验证码（send-code 契约要求 captcha，不能在 S2 盲发）
+    $('fgt-resend').addEventListener('click', function () {
+      if (fgtCodeTimer || fgtSending) return;
+      setFgtError2('');
+      showFgtStep(1);
+      $('fgt-captcha').value = '';
+      loadFgtCaptcha();
+      $('fgt-hint1').textContent = '请重新输入图形验证码，以获取新的邮箱验证码。';
+      requestAnimationFrame(function () { $('fgt-captcha').focus(); });
+    });
+
+    // ---- 找回 S1：获取邮箱验证码 ----
+    $('fgt-form1').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      if (fgtSending || fgtCodeTimer) return;
+      setFgtError1('');
+      clearFgtInvalid();
+      var email = $('fgt-email').value.trim();
+      var captcha = $('fgt-captcha').value.trim();
+      if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+        setFgtError1('请填写有效的邮箱地址。'); markFgtInvalid('fgt-email'); $('fgt-email').focus(); return;
+      }
+      if (!captcha) {
+        setFgtError1('请填写图形验证码。'); markFgtInvalid('fgt-captcha'); $('fgt-captcha').focus(); return;
+      }
+      fgtSending = true;
+      setFgtSendLoading(true);
+      try {
+        var res = await api('/api/forgot/send-code', {
+          method: 'POST', body: { email: email, captcha: captcha }
+        });
+        var d = res.data || {};
+        if (res.ok && d.ok !== false) {
+          // 成功/邮箱不存在统一文案，避免账号枚举
+          $('fgt-code-hint').textContent = '如果该邮箱已注册，验证码邮件已发出，请查收（5 分钟内有效）。';
+          startFgtCountdown(60);
+          showFgtStep(2);
+        } else {
+          setFgtError1(fgtErrByStatus(res, d, '发送失败，请检查邮箱和图形验证码后重试。'));
+          $('fgt-captcha').value = '';
+          loadFgtCaptcha();
+          $('fgt-captcha').focus();
+        }
+      } catch (err) {
+        setFgtError1('网络异常，请检查连接后重试。');
+        loadFgtCaptcha();
+      } finally {
+        fgtSending = false;
+        setFgtSendLoading(false);
+      }
+    });
+
+    // ---- 找回 S2：提交重置 ----
+    $('fgt-form2').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      if (fgtSubmitting) return;
+      setFgtError2('');
+      clearFgtInvalid();
+      var email = $('fgt-email').value.trim();
+      var code = $('fgt-code').value.trim();
+      var pw = $('fgt-password').value;
+      var pw2 = $('fgt-password2').value;
+      if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+        setFgtError2('请填写有效的邮箱地址。'); markFgtInvalid('fgt-email'); $('fgt-email').focus(); return;
+      }
+      if (!code) {
+        setFgtError2('请填写邮箱验证码。'); markFgtInvalid('fgt-code'); $('fgt-code').focus(); return;
+      }
+      if (!pw) {
+        setFgtError2('请设置新密码。'); markFgtInvalid('fgt-password'); $('fgt-password').focus(); return;
+      }
+      var miss = pwMissing(pw);
+      if (miss.length) {
+        setFgtError2('密码需满足：' + miss.join('、') + '。');
+        markFgtInvalid('fgt-password'); $('fgt-password').focus(); return;
+      }
+      if (pw !== pw2) {
+        setFgtError2('两次输入的密码不一致。'); markFgtInvalid('fgt-password2'); $('fgt-password2').focus(); return;
+      }
+      fgtSubmitting = true;
+      setFgtLoading(true);
+      try {
+        var res = await api('/api/forgot/reset', {
+          method: 'POST', body: { email: email, code: code, new_password: pw }
+        });
+        var d = res.data || {};
+        if (res.ok && d.ok !== false) {
+          clearFgtCountdown();
+          $('fgt-code').value = '';
+          $('fgt-password').value = '';
+          $('fgt-password2').value = '';
+          updatePwStrength();
+          showFgtStep(3);
+        } else {
+          setFgtError2(fgtErrByStatus(res, d, '重置失败，请检查验证码和密码后重试。'));
+          if (d.field === 'code') { markFgtInvalid('fgt-code'); $('fgt-code').focus(); }
+          else if (d.field === 'new_password' || d.field === 'password') {
+            markFgtInvalid('fgt-password'); $('fgt-password').focus();
+          }
+        }
+      } catch (err) {
+        setFgtError2('网络异常，请检查连接后重试。');
+      } finally {
+        fgtSubmitting = false;
+        setFgtLoading(false);
+      }
     });
 
     // ---- 发送邮箱验证码 ----

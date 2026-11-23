@@ -172,6 +172,45 @@ class SessionStore:
     def destroy(self, sid: str) -> None:
         self._items.pop(sid, None)
 
+    def destroy_by_user(self, username: str) -> int:
+        """删除该用户名下全部会话，返回删除数量（内存态，进程重启即失效）。"""
+        doomed = [sid for sid, s in self._items.items() if s.get("username") == username]
+        for sid in doomed:
+            self._items.pop(sid, None)
+        return len(doomed)
+
+
+class ResetCodeGuard:
+    """找回密码发码限流：按 IP + 邮箱双维度，滑动窗口计数（进程内存）。"""
+
+    def __init__(self, ip_window: int = 60, ip_max: int = 3,
+                 email_window: int = 60, email_max: int = 2) -> None:
+        self.ip_window = ip_window
+        self.ip_max = ip_max
+        self.email_window = email_window
+        self.email_max = email_max
+        self._ip: dict[str, list[float]] = {}
+        self._email: dict[str, list[float]] = {}
+
+    @staticmethod
+    def _prune(hits: list[float], now: float, window: int) -> list[float]:
+        return [t for t in hits if now - t < window]
+
+    def check(self, ip: str, email: str) -> tuple[bool, str]:
+        now = time.time()
+        ip_hits = self._prune(self._ip.get(ip, []), now, self.ip_window)
+        em_hits = self._prune(self._email.get(email, []), now, self.email_window)
+        if len(ip_hits) >= self.ip_max:
+            return False, "操作过于频繁，请稍后再试"
+        if len(em_hits) >= self.email_max:
+            return False, "发送太频繁，请稍后再试"
+        return True, ""
+
+    def record(self, ip: str, email: str) -> None:
+        now = time.time()
+        self._ip[ip] = self._prune(self._ip.get(ip, []), now, self.ip_window) + [now]
+        self._email[email] = self._prune(self._email.get(email, []), now, self.email_window) + [now]
+
 
 # --------------------------------------------------------------------------
 # 防暴破

@@ -1,6 +1,6 @@
 # team-workers 部署包
 
-服务端已部署到云端 `203.0.113.10`，systemd 服务 `nexus-remote.service`，公网入口 `https://hub.example.com/remote/`。
+服务端已部署到云端 `203.0.113.10`，systemd 服务 `team-workers.service`，公网入口 `https://hub.example.com/remote/`。
 
 ## 部署结果（2026-11-20 实测）
 
@@ -8,11 +8,11 @@
 |---|---|
 | 公网入口 | `https://hub.example.com/remote/`（管理台/API） |
 | 设备 WS | `wss://hub.example.com/remote/ws` |
-| 云端目录 | `/opt/nexus-remote`（独立，不动任何现有业务） |
+| 云端目录 | `/opt/team-workers`（独立，不动任何现有业务） |
 | 内部端口 | HTTP `127.0.0.1:18766`、WS `127.0.0.1:18765`（仅回环，不对外） |
-| systemd | `nexus-remote.service`，active + enabled，开机自启 |
-| 数据库 | `/opt/nexus-remote/data/hub.db`（含 logs_YYYYMM 按月表） |
-| 凭证 | `/opt/nexus-remote/.env`（0700，管理员「admin」口令 + 控制 token，不在仓库明文保存）。用户名支持中文（已修 `compare_digest` 仅 ASCII 的限制）。 |
+| systemd | `team-workers.service`，active + enabled，开机自启 |
+| 数据库 | `/opt/team-workers/data/hub.db`（含 logs_YYYYMM 按月表） |
+| 凭证 | `/opt/team-workers/.env`（0700，管理员「admin」口令 + 控制 token，不在仓库明文保存）。用户名支持中文（已修 `compare_digest` 仅 ASCII 的限制）。 |
 | Caddy | `/opt/mycli-edge/Caddyfile` 内新增 `team-workers` 段（备份 `.bak.*`），reload 不中断现有业务 |
 | 资源占用 | 内存 ~18MB（2C2G 云机无压力） |
 
@@ -23,7 +23,7 @@
 | `cloud_stage1.sh` | 阶段1：部署服务端本体（独立目录 + venv + systemd + 本机回环自检） |
 | `cloud_stage2_caddy.sh` | 阶段2：Caddy 加 `/remote` 反代（备份 + adapt 校验 + 失败自动回滚 + 公网自检） |
 | `cloud_verify.sh` / `cloud_fix_and_verify.sh` / `cloud_cleanup_verify.sh` | 云端端到端验证与清理 |
-| `nexus-remote.service` | systemd unit |
+| `team-workers.service` | systemd unit |
 | `caddy-snippet.txt` | Caddy 反代段（供人工核对） |
 | `rollback.sh` | 回滚脚本（停服务 + 恢复 Caddyfile + reload） |
 
@@ -31,11 +31,11 @@
 
 ```bash
 # 本地打包（含全部 py + ui + exec_server.py 执行内核 + .env）
-tar -czf /tmp/nexus-remote.tar.gz -C /tmp nexus-pkg
+tar -czf /tmp/team-workers.tar.gz -C /tmp team-workers-pkg
 
 # 传到 windows-dev → 云端
-scp /tmp/nexus-remote.tar.gz user@192.168.1.10:C:\\Users\\user\\nexus-remote.tar.gz
-# windows-dev 上：python ssh_put.py <本地> /tmp/nexus-remote.tar.gz
+scp /tmp/team-workers.tar.gz user@192.168.1.10:C:\\Users\\user\\team-workers.tar.gz
+# windows-dev 上：python ssh_put.py <本地> /tmp/team-workers.tar.gz
 
 # 云端执行（ssh_run.py 上传脚本后执行）
 # 1) cloud_stage1.sh  2) cloud_stage2_caddy.sh  3) cloud_verify.sh

@@ -747,25 +747,25 @@
     // 下载清单：path 统一走 /downloads/...，由 url() 拼接部署前缀
     var DOWNLOADS = [
       { platform: 'mac', glyph: 'M', label: 'macOS', name: '设备端 · macOS App',
-        file: 'Nexus-Remote-Device.app.zip',
+        file: 'team-workers-device.app.zip',
         desc: '图形化安装包，双击安装后在 App 内填入设备 ID 与私钥即可连接。',
-        path: '/downloads/Nexus-Remote-Device.app.zip' },
+        path: '/downloads/team-workers-device.app.zip' },
       { platform: 'mac', glyph: 'M', label: 'macOS', name: '设备端 · macOS 命令行',
-        file: 'nexus-device-mac',
+        file: 'team-workers-device-mac',
         desc: 'Apple Silicon 单文件二进制，适合服务器或无图形界面环境，命令行启动。',
-        path: '/downloads/nexus-device-mac' },
+        path: '/downloads/team-workers-device-mac' },
       { platform: 'win', glyph: 'W', label: 'Windows', name: '设备端 · Windows',
-        file: 'nexus-device-win.exe',
+        file: 'team-workers-device-win.exe',
         desc: 'Windows 可执行程序，下载后按提示配置设备 ID 与私钥。',
-        path: '/downloads/nexus-device-win.exe' },
+        path: '/downloads/team-workers-device-win.exe' },
       { platform: 'win', glyph: 'W', label: 'Windows', name: 'Windows 配置脚本',
         file: 'windows-setup.ps1',
         desc: 'PowerShell 脚本，自动完成 Windows 设备端的安装与开机自启配置。',
         path: '/downloads/windows-setup.ps1' },
       { platform: 'linux', glyph: 'L', label: 'Linux', name: '设备端 · Linux',
-        file: 'nexus-device-linux',
+        file: 'team-workers-device-linux',
         desc: 'Linux 二进制，适合服务器 / 容器；赋予执行权限后运行。',
-        path: '/downloads/nexus-device-linux' }
+        path: '/downloads/team-workers-device-linux' }
     ];
     var SKILL_DOWNLOAD = {
       platform: 'all', glyph: 'AI', label: '通用', name: 'device-remote skill',

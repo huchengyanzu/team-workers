@@ -9,9 +9,9 @@ SRC="$ROOT/prototype/ws_remote"
 OUT="$ROOT/packaging/dist"
 PLAT="${1:-$(uname -s)}"
 case "$PLAT" in
-  Darwin|macos|MacOS) NAME="nexus-device-mac" ;;
-  Linux|linux)        NAME="nexus-device-linux" ;;
-  *)                  NAME="nexus-device" ;;
+  Darwin|macos|MacOS) NAME="team-workers-device-mac" ;;
+  Linux|linux)        NAME="team-workers-device-linux" ;;
+  *)                  NAME="team-workers-device" ;;
 esac
 
 echo "=== 打包设备端: $NAME (平台 $PLAT) ==="

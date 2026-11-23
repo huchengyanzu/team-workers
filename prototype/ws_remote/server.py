@@ -44,7 +44,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from websockets.asyncio.server import serve as ws_serve
 
 from security import (
-    AuditLogger, CaptchaStore, LoginGuard, PasswordHasher, SessionStore,
+    AuditLogger, CaptchaStore, LoginGuard, PasswordHasher, SessionStore, ResetCodeGuard,
 )
 import user_store as US
 import mailer
@@ -508,6 +508,7 @@ class HttpApi:
         self.captcha = CaptchaStore()
         self.sessions = SessionStore()
         self.guard = LoginGuard()
+        self.reset_guard = ResetCodeGuard()
 
     # ---------- 鉴权 ----------
     def _token_user(self, headers: dict) -> dict | None:
@@ -542,8 +543,8 @@ class HttpApi:
 
     # 分发包下载：白名单固定文件名，防目录穿越；二进制用 application/octet-stream
     _DOWNLOADS = {
-        "nexus-device-win.exe", "nexus-device-mac", "nexus-device-linux",
-        "Nexus-Remote-Device.app.zip", "device-remote.zip", "windows-setup.ps1",
+        "team-workers-device-win.exe", "team-workers-device-mac", "team-workers-device-linux",
+        "team-workers-device.app.zip", "device-remote.zip", "windows-setup.ps1",
     }
 
     def _download(self, name: str) -> Response:
@@ -651,7 +652,7 @@ class HttpApi:
                 self.hub.audit.log("register_code_fail", actor=email or "-", ip=ip,
                                    detail=err, result="fail")
                 return json_resp(400, {"ok": False, "error": err})
-            if not mailer.smtp_configured():
+            if not mailer.email_configured():
                 self.hub.audit.log("register_mail_unconfigured", actor=email or "-",
                                    ip=ip, result="fail")
                 return json_resp(503, {"ok": False,
@@ -689,6 +690,12 @@ class HttpApi:
                 "control_token": user["control_token"],
                 "message": "注册成功，请保存你的控制 token（仅显示一次）",
             })
+
+        # ===== 找回密码（免登录）=====
+        if method == "POST" and path == "/api/forgot/send-code":
+            return await self._forgot_send_code(body, ip, cookies)
+        if method == "POST" and path == "/api/forgot/reset":
+            return await self._forgot_reset(body, ip)
 
         # ===== 需鉴权 =====
         session = self.sessions.get(cookies.get("session", ""))
@@ -968,6 +975,88 @@ class HttpApi:
         return json_resp(200, {"ok": True, "email": email, "username": user["username"],
                                "role": user["role"]}, {
             "Set-Cookie": cookie_header("session", sid, self.secure_cookie),
+        })
+
+    # ---------- 找回密码 ----------
+    _FORGOT_UNIFIED = {
+        "ok": True,
+        "message": "如果该邮箱已注册，验证码邮件已发出，请查收（5 分钟内有效）。",
+    }
+
+    async def _forgot_send_code(self, body: dict, ip: str, cookies: dict) -> Response:
+        """发重置验证码。图形验证码先行；邮箱存在与否对外统一响应，防枚举。"""
+        captcha_text = str(body.get("captcha", ""))
+        if not self.captcha.verify(cookies.get("captcha_id", ""), captcha_text):
+            return json_resp(400, {"ok": False, "error": "图形验证码不正确，请重新输入"})
+
+        email = str(body.get("email", ""))[:254].strip().lower()
+        if not US.valid_email(email):
+            return json_resp(400, {"ok": False, "error": "请输入有效的邮箱地址"})
+
+        allowed, _hint = self.reset_guard.check(ip, email)
+        if not allowed:
+            self.hub.audit.log("password_reset_rate_limited", actor=email or "-",
+                               ip=ip, detail="ip/email window exceeded", result="blocked")
+            return json_resp(200, dict(self._FORGOT_UNIFIED))
+
+        code, err = US.issue_reset_code(self.db_path, email)
+        if err and "频繁" in err:
+            return json_resp(429, {"ok": False, "error": err})
+
+        if not mailer.email_configured():
+            self.hub.audit.log("password_reset_mail_unconfigured", actor=email or "-",
+                               ip=ip, result="fail")
+            return json_resp(503, {"ok": False,
+                                   "error": "服务端邮件未配置，请联系管理员"})
+
+        if code:
+            sent = await asyncio.get_running_loop().run_in_executor(
+                None, mailer.send_email, email,
+                "team-workers 重置登录密码验证码",
+                "您好，\n\n您正在重置 team-workers 账号的登录密码，验证码为：%s\n\n"
+                "验证码 5 分钟内有效，请尽快填写。若非本人操作请忽略此邮件，您的密码不会被修改。\n\n"
+                "如您怀疑控制 token 泄露，可在登录后于管理台轮换。\n\n—— team-workers" % code,
+            )
+            self.hub.audit.log("password_reset_code_sent", actor=email, ip=ip,
+                               detail="delivered" if sent else "mail_fail",
+                               result="ok" if sent else "fail")
+            if not sent:
+                return json_resp(502, {"ok": False, "error": "验证码邮件发送失败，请稍后重试"})
+        else:
+            # 未注册/禁用：执行等价 CPU 工作压平时序差，不发信、不暴露状态
+            PasswordHasher.make(email)
+            self.hub.audit.log("password_reset_code_sent", actor=email or "-", ip=ip,
+                               detail="noop_unknown_or_disabled", result="ok")
+
+        self.reset_guard.record(ip, email)
+        return json_resp(200, dict(self._FORGOT_UNIFIED))
+
+    async def _forgot_reset(self, body: dict, ip: str) -> Response:
+        """校验重置验证码并改密；成功后销毁该用户全部会话（不碰 control_token）。"""
+        email = str(body.get("email", ""))[:254].strip().lower()
+        code = str(body.get("code", "")).strip()
+        new_pwd = str(body.get("new_password", ""))
+
+        strength = check_password_strength(new_pwd)
+        if strength:
+            return json_resp(400, {"ok": False, "error": strength})
+        if not US.valid_email(email) or not code:
+            return json_resp(400, {"ok": False, "error": "参数不正确"})
+
+        ok, err, username = US.reset_password_with_code(self.db_path, email, code, new_pwd)
+        if not ok:
+            self.hub.audit.log("password_reset_fail", actor=email or "-", ip=ip,
+                               detail=err, result="fail")
+            status = 429 if ("频繁" in err or "过多" in err) else 400
+            return json_resp(status, {"ok": False, "error": err})
+
+        n = self.sessions.destroy_by_user(username)
+        self.hub.audit.log("password_reset_ok", actor=email, ip=ip,
+                           detail="sessions_destroyed=%d" % n, result="ok")
+        return json_resp(200, {
+            "ok": True,
+            "message": "密码已重置，请用新密码重新登录",
+            "hint": "如怀疑控制 token 泄露，请在管理台轮换",
         })
 
 

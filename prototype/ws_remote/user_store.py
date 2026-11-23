@@ -448,3 +448,94 @@ def register_with_email(db_path: str, email: str, code: str,
     except sqlite3.IntegrityError:
         return None, "该邮箱已被注册"
     return get_by_id(db_path, uid), ""
+
+
+# ---------- 邮箱找回密码 ----------
+# 复用 email_codes 表的 purpose='reset'，零 schema 变更。
+# 不能复用 issue_email_code()——它对已注册邮箱直接返回错误，
+# 恰好与找回场景相反（找回只允许已注册邮箱取码）。
+
+def issue_reset_code(db_path: str, email: str) -> tuple[str | None, str]:
+    """仅当 email 已注册且 enabled 时生成并入库 reset 验证码，返回 (明文码, '')。
+
+    未注册/禁用 → (None, '') 表示伪成功（调用方据此执行等价耗时处理但不发信）；
+    冷却中 → (None, '发送太频繁，请 N 秒后重试')。
+    验证码参数复用 register 常量：6 位 / TTL 300s / 冷却 60s，只存 hash。
+    """
+    email = valid_email(email)
+    if not email:
+        return None, "邮箱格式不正确"
+    u = get_by_email(db_path, email)
+    if not u or not u.get("enabled"):
+        return None, ""
+    now = datetime.now(timezone.utc)
+    with _connect(db_path) as c:
+        recent = c.execute(
+            "SELECT created_at,attempts FROM email_codes WHERE email=? AND purpose='reset' AND used=0 "
+            "ORDER BY id DESC LIMIT 1", (email,)
+        ).fetchone()
+        if recent:
+            try:
+                created = datetime.fromisoformat(recent[0])
+                age = (now - created).total_seconds()
+                exhausted = recent[1] >= CODE_MAX_ATTEMPTS
+                if age < SEND_COOLDOWN_SECONDS and not exhausted:
+                    left = int(SEND_COOLDOWN_SECONDS - age)
+                    return None, "发送太频繁，请 %d 秒后重试" % left
+            except (ValueError, TypeError):
+                pass
+        code = "%06d" % secrets.randbelow(1_000_000)
+        expires = (now + timedelta(seconds=CODE_TTL_SECONDS)).isoformat()
+        c.execute(
+            "INSERT INTO email_codes(email,code_hash,purpose,expires_at,attempts,used,created_at) "
+            "VALUES(?,?,?,?,0,0,?)",
+            (email, _code_hash(email, code), "reset", expires, now.isoformat()),
+        )
+    return code, ""
+
+
+_UNIFIED_RESET_ERR = "验证码错误或已过期，请重新获取"
+
+
+def reset_password_with_code(db_path: str, email: str, code: str,
+                             new_password: str) -> tuple[bool, str, str]:
+    """单事务（BEGIN IMMEDIATE）完成：校验 reset 码 → 改密 → 标记 used。
+
+    返回 (ok, error, username)。所有验证码类失败统一返回 _UNIFIED_RESET_ERR，
+    绝不暴露「邮箱未注册/账号禁用」。只 UPDATE users.salt/password_hash，
+    不碰 role / control_token / enabled。并发重放靠事务串行化，仅一个成功。
+    """
+    email = valid_email(email)
+    code = (code or "").strip()
+    if not email or len(code) != 6 or not code.isdigit():
+        return False, _UNIFIED_RESET_ERR, ""
+    now = datetime.now(timezone.utc)
+    with _connect(db_path) as c:
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute(
+            "SELECT id,code_hash,expires_at,attempts FROM email_codes "
+            "WHERE email=? AND purpose='reset' AND used=0 ORDER BY id DESC LIMIT 1", (email,)
+        ).fetchone()
+        if not row:
+            return False, _UNIFIED_RESET_ERR, ""
+        cid, code_hash, expires, attempts = row
+        try:
+            if now > datetime.fromisoformat(expires):
+                return False, _UNIFIED_RESET_ERR, ""
+        except (ValueError, TypeError):
+            return False, _UNIFIED_RESET_ERR, ""
+        if attempts >= CODE_MAX_ATTEMPTS:
+            return False, _UNIFIED_RESET_ERR, ""
+        if not hmac.compare_digest(code_hash, _code_hash(email, code)):
+            c.execute("UPDATE email_codes SET attempts=attempts+1 WHERE id=?", (cid,))
+            return False, _UNIFIED_RESET_ERR, ""
+        u = c.execute(
+            "SELECT id,username,enabled FROM users WHERE email=? OR username=?",
+            (email, email),
+        ).fetchone()
+        if not u or not u[2]:
+            return False, _UNIFIED_RESET_ERR, ""
+        salt, digest = PasswordHasher.make(new_password)
+        c.execute("UPDATE users SET salt=?,password_hash=? WHERE id=?", (salt, digest, u[0]))
+        c.execute("UPDATE email_codes SET used=1 WHERE email=? AND purpose='reset'", (email,))
+        return True, "", u[1]

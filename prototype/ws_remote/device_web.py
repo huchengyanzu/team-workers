@@ -260,7 +260,7 @@ class DeviceWebApi:
             return {"ok": False, "error": "路径解析失败: %s" % exc, "dirs": []}
 
     # ---------- 开机自启动（仅操作当前用户级启动项，无需管理员权限） ----------
-    _AUTOSTART_LABEL = "com.nexusremote.device"
+    _AUTOSTART_LABEL = "com.teamworkers.device"
 
     def _mac_plist(self) -> Path:
         return Path.home() / "Library" / "LaunchAgents" / (self._AUTOSTART_LABEL + ".plist")
@@ -269,7 +269,7 @@ class DeviceWebApi:
         """自启动时要执行的命令。macOS 通过 open -a 启动 app，避免绕开 bundle 环境。"""
         if sys.platform == "darwin":
             exe = Path(sys.executable).resolve()
-            # launchd 直接拉起 bundle 内的 Mach-O：环境变量（NEXUS_NO_BROWSER=1）
+            # launchd 直接拉起 bundle 内的 Mach-O：环境变量（TEAM_WORKERS_NO_BROWSER=1）
             # 一定可达进程；用 open -a 时 GUI app 未必继承 launchd 的环境。
             if ".app/Contents/" in str(exe):
                 return [str(exe)]
@@ -302,7 +302,7 @@ class DeviceWebApi:
                     r"Software\Microsoft\Windows\CurrentVersion\Run",
                     0, winreg.KEY_READ,
                 ) as key:
-                    winreg.QueryValueEx(key, "NexusRemoteDevice")
+                    winreg.QueryValueEx(key, "TeamWorkersDevice")
                     enabled = True
             except FileNotFoundError:
                 enabled = False
@@ -347,7 +347,7 @@ class DeviceWebApi:
                 '  <key>Label</key>\n  <string>%s</string>\n'
                 '  <key>ProgramArguments</key>\n  <array>\n%s\n  </array>\n'
                 '  <key>EnvironmentVariables</key>\n  <dict>\n'
-                '    <key>NEXUS_NO_BROWSER</key><string>1</string>\n'
+                '    <key>TEAM_WORKERS_NO_BROWSER</key><string>1</string>\n'
                 '  </dict>\n'
                 '  <key>RunAtLoad</key>\n  <true/>\n'
                 '  <key>KeepAlive</key>\n  <false/>\n'
@@ -367,11 +367,11 @@ class DeviceWebApi:
                     0, winreg.KEY_SET_VALUE | winreg.KEY_QUERY_VALUE,
                 ) as key:
                     if enabled:
-                        winreg.SetValueEx(key, "NexusRemoteDevice", 0,
+                        winreg.SetValueEx(key, "TeamWorkersDevice", 0,
                                           winreg.REG_SZ, self._win_run_command())
                     else:
                         try:
-                            winreg.DeleteValue(key, "NexusRemoteDevice")
+                            winreg.DeleteValue(key, "TeamWorkersDevice")
                         except FileNotFoundError:
                             pass
                 return {"ok": True, **self._autostart_status()}

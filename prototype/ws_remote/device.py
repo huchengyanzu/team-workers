@@ -280,12 +280,12 @@ async def run(state: DeviceState, once: bool = False) -> None:
 
 def main() -> None:
     # 从 .app 启动时没有命令行参数，这里给一套适合桌面程序的默认值：
-    # 配置写用户目录、固定本机配置页端口、自动开浏览器（开机自启经 NEXUS_NO_BROWSER=1 关掉）。
+    # 配置写用户目录、固定本机配置页端口、自动开浏览器（开机自启经 TEAM_WORKERS_NO_BROWSER=1 关掉）。
     _exe = str(Path(sys.executable).resolve())
     app_mode = (bool(getattr(sys, "frozen", False)) and sys.platform == "darwin"
                 and ".app/Contents/" in _exe)
     default_config = (str(Path.home() / "Library" / "Application Support" /
-                          "Nexus Remote" / "device.json") if app_mode else "device.json")
+                          "team-workers" / "device.json") if app_mode else "device.json")
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=default_config, help="设备配置文件路径")
@@ -293,9 +293,9 @@ def main() -> None:
     ap.add_argument("--web-port", type=int, default=0,
                     help="本地配置页端口；0=自动选 18770（被占用则 18771…），-1=禁用")
     ap.add_argument("--no-web", action="store_true", help="禁用本地配置页")
-    # 三端统一：启动即自动打开本地配置页；开机自启用 --no-browser / NEXUS_NO_BROWSER=1 抑制。
+    # 三端统一：启动即自动打开本地配置页；开机自启用 --no-browser / TEAM_WORKERS_NO_BROWSER=1 抑制。
     ap.add_argument("--open-browser", action="store_true",
-                    default=(not os.environ.get("NEXUS_NO_BROWSER")),
+                    default=(not os.environ.get("TEAM_WORKERS_NO_BROWSER")),
                     help="配置页就绪后用系统默认浏览器自动打开本地配置页（默认开启）")
     ap.add_argument("--no-browser", action="store_true",
                     help="不自动打开浏览器（开机自启/后台运行时用）")
