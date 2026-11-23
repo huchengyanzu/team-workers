@@ -735,7 +735,8 @@ class HttpApi:
                 "Set-Cookie": cookie_header("session", "", self.secure_cookie, 0),
             })
         if method == "GET" and path == "/api/session":
-            return json_resp(200, {"username": actor, "role": user["role"],
+            return json_resp(200, {"username": actor, "email": user["username"],
+                                   "id": user["id"], "role": user["role"],
                                    "via": "session" if session else "token"})
         if method == "GET" and path == "/admin.html":
             return self._static("admin.html")
@@ -833,16 +834,25 @@ class HttpApi:
         if method == "GET" and path == "/api/admin/users":
             rows = US.list_users(self.db_path)
             for r in rows:
-                t = r["control_token"]
-                r["control_token"] = t[:6] + "…" + t[-4:] if len(t) > 12 else "***"
+                # 凭证隔离：仅本人可见自己 token 的掩码；其他人（含超管）一律不返回。
+                if r["id"] == user["id"]:
+                    t = r["control_token"]
+                    r["control_token"] = t[:6] + "…" + t[-4:] if len(t) > 12 else "***"
+                else:
+                    r["control_token"] = ""
             return json_resp(200, {"users": rows})
         if method == "GET" and path.startswith("/api/admin/users/") and path.endswith("/token"):
-            # 列表只返回打码 token；按需单独读取完整 token，避免一次性暴露全部凭证。
+            # 读取完整 token：仅限本人。超管也不得查看其他人的凭证。
             seg = path.split("/")
             try:
                 uid = int(seg[4])
             except (ValueError, IndexError):
                 return json_resp(400, {"error": "invalid user id"})
+            if uid != user["id"]:
+                self.hub.audit.log("user_token_view_denied", actor=actor, ip=src_ip,
+                                   target=str(uid), result="fail",
+                                   detail="非本人读取 token 被拒绝")
+                return json_resp(403, {"error": "只能查看自己的控制 Token"})
             target_user = US.get_by_id(self.db_path, uid)
             if not target_user:
                 return json_resp(404, {"error": "user not found"})
@@ -890,6 +900,12 @@ class HttpApi:
                                    target=target_user["username"])
                 return json_resp(200, {"ok": True})
             if op == "token":
+                # 重置 token：仅限本人。超管也不得重置其他人的凭证。
+                if uid != user["id"]:
+                    self.hub.audit.log("user_token_reset_denied", actor=actor, ip=src_ip,
+                                       target=str(uid), result="fail",
+                                       detail="非本人重置 token 被拒绝")
+                    return json_resp(403, {"error": "只能重置自己的控制 Token"})
                 token = US.reset_token(self.db_path, uid)
                 self.hub.audit.log("user_token_reset", actor=actor, ip=src_ip,
                                    target=target_user["username"])

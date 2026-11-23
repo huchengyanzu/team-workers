@@ -185,7 +185,7 @@
               <tbody id="users-body"></tbody>
             </table></div>
           </div>
-          <p class="hint" style="margin-top:var(--sp-3)">控制 Token 供该用户的 Agent Skill 使用（REMOTE_TOKEN）；点「复制」可获取当前完整 Token，重置后旧 Token 立即失效。</p>
+          <p class="hint" style="margin-top:var(--sp-3)">控制 Token 供各用户的 Agent Skill 使用（REMOTE_TOKEN）。出于安全，任何人（含管理员）都只能查看和重置自己的 Token，无法看到或操作他人的 Token。</p>
         </section>
 
         <!-- ============ 视图 5：下载中心（纯静态 + UA 检测，不调 API） ============ -->
@@ -411,6 +411,7 @@
 
     /* ---------- 用户管理（管理员） ---------- */
     var currentRole = '';
+    var currentUserId = null;  // 当前登录用户 id；token 的查看/重置仅允许本人
 
     async function loadUsers() {
       var tbody = $('users-body'); if (!tbody) return;
@@ -422,8 +423,12 @@
         if (!users.length) { tbody.appendChild(el('tr', {}, [el('td', { text: '暂无用户', attrs: { colspan: '6' } })])); return; }
         users.forEach(function (u) {
           var acts = el('div', { cls: 'row gap-2' });
-          acts.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '重置Token', title: '重置该用户的控制 Token',
-            on: { click: function () { resetUserToken(u); } } }));
+          // 凭证隔离：控制 Token 的查看/重置仅限本人，超管也不能操作他人 token。
+          var isSelf = (currentUserId != null && u.id === currentUserId);
+          if (isSelf) {
+            acts.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '重置Token', title: '重置我自己的控制 Token',
+              on: { click: function () { resetUserToken(u); } } }));
+          }
           // 超管账号唯一且锁定：不提供改密/禁用/删除（后端也会拒绝禁用/删除唯一超管）
           if (u.role !== 'admin') {
             acts.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '改密', on: { click: function () { setUserPassword(u); } } }));
@@ -436,11 +441,15 @@
             el('td', { text: u.email || u.username }),
             el('td', {}, [badge(u.role === 'admin' ? '管理员' : '普通用户', u.role === 'admin' ? 'badge-brand' : 'badge-plain')]),
             el('td', {}, [badge(u.enabled ? '启用' : '禁用', u.enabled ? 'badge-success' : 'badge-danger')]),
-            el('td', {}, [el('div', { cls: 'row gap-2' }, [
-              el('span', { cls: 'mono', text: u.control_token || '—', title: u.control_token || '' }),
-              el('button', { cls: 'btn btn-ghost btn-sm', text: '复制', title: '复制该用户的完整控制 Token',
-                on: { click: function () { copyUserToken(u); } } })
-            ])]),
+            el('td', {}, [el('div', { cls: 'row gap-2' }, (function () {
+              // 他人 token 一律不展示、不提供复制；仅本人显示掩码 + 复制。
+              if (!isSelf) return [el('span', { cls: 'muted', text: '—' })];
+              return [
+                el('span', { cls: 'mono', text: u.control_token || '—', title: u.control_token || '' }),
+                el('button', { cls: 'btn btn-ghost btn-sm', text: '复制', title: '复制我自己的完整控制 Token',
+                  on: { click: function () { copyUserToken(u); } } })
+              ];
+            })())]),
             el('td', { text: (u.created_at || '').slice(0, 10) }),
             el('td', {}, [acts])
           ]));
@@ -473,6 +482,7 @@
       return copyTextFallback(text, msg);
     }
     async function copyUserToken(u) {
+      if (currentUserId == null || u.id !== currentUserId) { toast('只能查看自己的 Token', 'err'); return; }
       try {
         var res = await api('/api/admin/users/' + u.id + '/token');
         if (!res.ok || !res.data.control_token) { toast(res.data.error || '获取 Token 失败', 'err'); return; }
@@ -530,7 +540,8 @@
     }
 
     function resetUserToken(u) {
-      if (!confirm('确定重置用户 ' + (u.email||u.username) + ' 的控制 Token 吗？旧 Token 会立即失效。')) return;
+      if (currentUserId == null || u.id !== currentUserId) { toast('只能重置自己的 Token', 'err'); return; }
+      if (!confirm('确定重置我自己的控制 Token 吗？旧 Token 会立即失效。')) return;
       api('/api/admin/users/' + u.id + '/token', { method: 'POST' }).then(function (res) {
         if (res.ok) { showTokenOnce(res.data.control_token, u.email||u.username); loadUsers(); }
         else toast(res.data.error || '重置失败', 'err');
@@ -883,6 +894,7 @@
         var d = await r.json();
         var u = (d && (d.email || d.username)) || '管理员';
         currentRole = (d && d.role) || '';
+        currentUserId = (d && d.id != null) ? d.id : null;
         $('account-name').textContent = u + (currentRole === 'admin' ? ' · 管理员' : '');
         $('avatar').textContent = String(u).slice(0, 1).toUpperCase();
         // 用户管理入口仅超管可见：超管主动显示，其余一律隐藏
