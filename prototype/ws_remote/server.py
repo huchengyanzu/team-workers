@@ -531,13 +531,18 @@ class HttpApi:
         return user["role"] == "admin"
 
     def _static(self, name: str) -> Response:
-        allowed = {"login.html", "admin.html", "theme.css"}
+        allowed = {"login.html", "admin.html", "theme.css", "favicon.png"}
         if name not in allowed:
             return json_resp(404, {"error": "not found"})
         path = UI_DIR / name
         if not path.is_file():
             return json_resp(500, {"error": "ui asset missing: " + name})
-        ctype = "text/html; charset=utf-8" if name.endswith(".html") else "text/css; charset=utf-8"
+        if name.endswith(".html"):
+            ctype = "text/html; charset=utf-8"
+        elif name.endswith(".png"):
+            ctype = "image/png"
+        else:
+            ctype = "text/css; charset=utf-8"
         return Response(200, path.read_bytes(), ctype,
                         {"Cache-Control": "no-store"})
 
@@ -630,7 +635,10 @@ class HttpApi:
         ip = client_ip(headers)
 
         # ===== 公开资源（免登录）=====
-        if method == "GET" and path in ("/", "/login.html", "/theme.css"):
+        # 浏览器默认请求 /favicon.ico；统一用新图标 PNG 返回（浏览器接受 image/png）
+        if method == "GET" and path == "/favicon.ico":
+            return self._static("favicon.png")
+        if method == "GET" and path in ("/", "/login.html", "/theme.css", "/favicon.png"):
             return self._static("login.html" if path == "/" else path.lstrip("/"))
         if method in ("GET", "HEAD") and path.startswith("/downloads/"):
             return self._download(path[len("/downloads/"):])
