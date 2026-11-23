@@ -662,6 +662,7 @@ class HttpApi:
                 "team-workers 注册验证码",
                 "您好，\n\n您正在注册 team-workers，验证码为：%s\n\n"
                 "验证码 5 分钟内有效，请尽快填写。若非本人操作请忽略此邮件。" % code,
+                mailer.verification_code_html(code, "您好，您正在注册 team-workers 账号，请使用下方验证码完成注册。"),
             )
             if not sent:
                 self.hub.audit.log("register_mail_fail", actor=email, ip=ip, result="fail")
@@ -1032,6 +1033,10 @@ class HttpApi:
                 "您好，\n\n您正在重置 team-workers 账号的登录密码，验证码为：%s\n\n"
                 "验证码 5 分钟内有效，请尽快填写。若非本人操作请忽略此邮件，您的密码不会被修改。\n\n"
                 "如您怀疑控制 token 泄露，可在登录后于管理台轮换。\n\n—— team-workers" % code,
+                mailer.verification_code_html(
+                    code, "您好，您正在重置 team-workers 账号的登录密码，请使用下方验证码完成验证。",
+                    "若非本人操作请忽略此邮件，您的密码不会被修改。如怀疑控制 token 泄露，可在登录后于管理台轮换。",
+                ),
             )
             self.hub.audit.log("password_reset_code_sent", actor=email, ip=ip,
                                detail="delivered" if sent else "mail_fail",
