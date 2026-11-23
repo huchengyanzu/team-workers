@@ -228,7 +228,13 @@ async def run(state: DeviceState, once: bool = False) -> None:
                                         "jsonrpc": "2.0", "id": task_id, "method": "tools/call",
                                         "params": {"name": tool, "arguments": arguments},
                                     }
-                                    resp = server.dispatch(rpc) or {}
+                                    # 关键：执行内核是同步的（subprocess.wait 等直系进程），
+                                    # 绝不能在 async 主循环里直接调用——否则任何慢命令/卡顿都会
+                                    # 冻结 event loop，心跳与 websocket keepalive pong 发不出，
+                                    # 服务端 20s 收不到 pong 即判 1011 离线（已实测复现）。
+                                    # 丢进线程池：exec 阻塞只占工作线程，心跳/收发帧照常运行。
+                                    loop = asyncio.get_running_loop()
+                                    resp = await loop.run_in_executor(None, server.dispatch, rpc) or {}
                                     if "error" in resp:
                                         result = {"ok": False, "error": resp["error"]}
                                     else:

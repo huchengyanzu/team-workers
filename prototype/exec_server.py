@@ -342,6 +342,15 @@ class Executor:
             self._sweep_finished_job_slots_locked()
             return {"active": self._active, "limit": self.max_concurrency}
 
+    @staticmethod
+    def _read_output_bytes(path: str) -> bytes:
+        """读子进程写到临时文件的输出；文件不存在（进程没写过）视为空。"""
+        try:
+            with open(path, "rb") as fh:
+                return fh.read()
+        except FileNotFoundError:
+            return b""
+
     def exec_command(self, command, timeout: float | None = None) -> dict:
         try:
             argv = self._prepare(command)
@@ -356,46 +365,86 @@ class Executor:
         try:
             limit = float(timeout) if timeout is not None else self.default_timeout
             started = time.monotonic()
-            proc = subprocess.Popen(
-                argv,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                **self._spawn_kwargs(),
-            )
+            # 掉线根因修复：stdout/stderr 不再用 PIPE + communicate()。
+            # Windows 上 `start /b`、`start cmd /c` 拉起的孙进程会继承管道写端；
+            # 直系进程退出后孙进程仍握着管道，communicate() 等 EOF 永久不返回，
+            # 进而阻塞 device.py 的 async 主循环 → websocket 心跳/keepalive 发不出 → 服务端判离线。
+            # 改为写临时文件 + proc.wait()：wait 只等直系进程退出，不等孙进程、不等 EOF；
+            # 随后直接读文件内容，孙进程即使还活着也不影响读取和返回结果。
+            work_dir = os.path.join(JOB_ROOT, "exec-" + uuid.uuid4().hex[:12])
+            out_path = os.path.join(work_dir, "stdout.txt")
+            err_path = os.path.join(work_dir, "stderr.txt")
+            out_f = err_f = None
+            proc = None
             try:
-                out_b, err_b = proc.communicate(timeout=limit)
+                os.makedirs(work_dir, exist_ok=True)
+                out_f = open(out_path, "wb")
+                err_f = open(err_path, "wb")
+                proc = subprocess.Popen(
+                    argv,
+                    stdin=subprocess.DEVNULL,
+                    stdout=out_f,
+                    stderr=err_f,
+                    **self._spawn_kwargs(),
+                )
+                # 父进程侧立刻关闭句柄；子进程持有自己的 fd 继续写，不受影响。
+                out_f.close(); out_f = None
+                err_f.close(); err_f = None
                 timed_out = False
-            except subprocess.TimeoutExpired:
-                self._force_kill_tree(proc)
-                out_b, err_b = proc.communicate()
-                timed_out = True
+                try:
+                    proc.wait(timeout=limit)
+                except subprocess.TimeoutExpired:
+                    self._force_kill_tree(proc)
+                    # 强杀后直系进程会很快退出；5s 兜底即可，绝不再走无超时的 communicate()。
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        pass
+                    timed_out = True
 
-            duration_ms = int((time.monotonic() - started) * 1000)
-            stdout, cut_out = truncate_text(
-                decode_output(out_b, self.output_fallback_encoding), self.max_output_bytes)
-            stderr, cut_err = truncate_text(
-                decode_output(err_b, self.output_fallback_encoding), self.max_output_bytes)
-            if timed_out:
+                duration_ms = int((time.monotonic() - started) * 1000)
+                stdout, cut_out = truncate_text(
+                    decode_output(self._read_output_bytes(out_path), self.output_fallback_encoding),
+                    self.max_output_bytes)
+                stderr, cut_err = truncate_text(
+                    decode_output(self._read_output_bytes(err_path), self.output_fallback_encoding),
+                    self.max_output_bytes)
+                if timed_out:
+                    return {
+                        "ok": False,
+                        "error": "命令执行超时（timeout=%.1fs），已终止；超时判定见 duration_ms" % limit,
+                        "timed_out": True,
+                        "stdout": stdout,
+                        "stderr": stderr,
+                        "exit_code": None,
+                        "duration_ms": duration_ms,
+                        "truncated": {"stdout": cut_out, "stderr": cut_err},
+                    }
                 return {
-                    "ok": False,
-                    "error": "命令执行超时（timeout=%.1fs），已终止；超时判定见 duration_ms" % limit,
-                    "timed_out": True,
+                    "ok": True,
                     "stdout": stdout,
                     "stderr": stderr,
-                    "exit_code": None,
+                    "exit_code": proc.returncode,
                     "duration_ms": duration_ms,
+                    "timed_out": False,
                     "truncated": {"stdout": cut_out, "stderr": cut_err},
                 }
-            return {
-                "ok": True,
-                "stdout": stdout,
-                "stderr": stderr,
-                "exit_code": proc.returncode,
-                "duration_ms": duration_ms,
-                "timed_out": False,
-                "truncated": {"stdout": cut_out, "stderr": cut_err},
-            }
+            finally:
+                if out_f is not None:
+                    out_f.close()
+                if err_f is not None:
+                    err_f.close()
+                # 清理临时文件：Windows 上孙进程若仍持有句柄会 PermissionError，
+                # 忽略即可（临时目录由系统回收），绝不能因清理失败让命令结果出错。
+                for p in (out_path, err_path):
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
+                try:
+                    os.rmdir(work_dir)
+                except OSError:
+                    pass
         finally:
             # 无论成功、超时还是异常，exec 占用的槽位都立刻归还
             self._release_slot()
