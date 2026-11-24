@@ -10,6 +10,9 @@
 config.local.json 形如 {"server":"https://hub.example.com","token":"<token>"}，
 用于 exec 子进程不共享环境变量的场景（如 myclaw），配置一次后免参调用；该文件勿提交版本库。
 服务端默认 https://hub.example.com，请求路径 = base + /api/...。
+旧域名 old-hub.example.com 已停用不再解析。HTTPS 依赖 Python/系统 OpenSSL：Windows 上
+若出现 ConnectionResetError [WinError 64/10054] / ssl.SSLError，优先换 Python 3.13+
+(OpenSSL 3.5.x) 或 Anaconda Python；不要用 OpenSSL 3.0.x (libssl-3.dll)。
 
 用法示例：
     python3 remote.py list

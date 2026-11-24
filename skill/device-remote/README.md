@@ -80,6 +80,14 @@ python3 scripts/remote.py register-confirm user@example.com 123456 'Str0ng!Pass2
 
 本机测试可用 `--base` / `--token` 覆盖环境变量，无需改动全局配置。
 
+## 运行环境与 TLS / OpenSSL（重要）
+
+- **服务端地址只认 `hub.example.com`**：旧地址 `old-hub.example.com` 已停用且不再解析；看到旧地址请改成 `https://hub.example.com`（设备端填 `wss://hub.example.com/ws`）。
+- **控制端 `remote.py`**：Python 3 + 标准库，无第三方依赖。Windows 上如果 TLS 握手失败，换用 **Python 3.13+（OpenSSL 3.5.x）** 或 **Anaconda Python（Python 3.11.15 + OpenSSL 3.5.5）**。查看版本：`python -c "import ssl; print(ssl.OPENSSL_VERSION)"`。
+- **设备端单文件程序**：官方下载包已内置 OpenSSL 3.5.5（Windows 随包带 `libssl-3-x64.dll` / `libcrypto-3-x64.dll`），**无需另装，也不要删除随包 DLL**。不要自行用系统 Python 重打包：系统 Python 3.13.12 + OpenSSL 3.0.18（`libssl-3.dll`）在本链路会随机握手失败。
+- **典型症状**：`ConnectionResetError [WinError 64/10054]`、`ssl.SSLError`、`Tunnel connection failed: 502`、设备一直 offline。先确认 OpenSSL 版本，再确认网络出口/代理放行 `hub.example.com:443`；代理拦截 `*.example.com` 时任何版本都连不上。
+- **不要降级到 OpenSSL 3.0.x**：那正是会失败的栈；应升到 3.5.x 或直接使用官方包。
+
 ## 命令示例
 
 ```bash
@@ -149,4 +157,4 @@ python3 scripts/remote.py --json list
 
 设备上线后用 `python3 scripts/remote.py list` 找到它的 device_id，即可用本 skill 遥控。
 注意：设备端填的是**私钥**，本 skill 填的是**控制 token**，二者不同、不要混用。
-服务端地址必须是 `/ws` 结尾，写成其它路径会 404 离线。更多细节见 `SKILL.md` 的「设备端程序使用说明」。
+服务端地址必须是 `/ws` 结尾，写成其它路径会 404 离线。Windows 上若自编译，必须遵守上文「运行环境与 TLS / OpenSSL」要求；官方 exe 已内置正确 OpenSSL，无需处理。更多细节见 `SKILL.md` 的「设备端程序使用说明」。
