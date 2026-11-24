@@ -284,14 +284,44 @@ async def run(state: DeviceState, once: bool = False) -> None:
             return
 
 
+# 默认配置文件候选名（按优先级）。device.json 是标准名；team-workers-device.json
+# 是早期交付时给 Windows 设备用的实际文件名（家里电脑 Downloads 下就是这个名字）。
+_CONFIG_NAMES = ("device.json", "team-workers-device.json")
+
+
+def resolve_default_config(exe_path: str, app_mode: bool, cwd: Path | None = None) -> str:
+    """算出默认配置文件绝对路径（无 --config 参数时使用）。
+
+    app_mode(macOS .app)：固定写用户目录，与旧行为一致。
+    其它平台：固定在 exe 所在目录（绝对路径）。旧值是相对路径 "device.json"，
+    随启动时工作目录(CWD)变化——双击 exe / 不同快捷方式 / 自启项 CWD 不同，
+    就会读到不同（或空）的配置，表现为"重启后配置丢了"、配置页全空、设备离线。
+
+    查找顺序（找到第一个已存在的即用它，返回绝对路径）：
+      1. exe 目录下的 device.json / team-workers-device.json
+      2. CWD 下的同名文件（向后兼容老版本在 CWD 读写配置的行为）
+      3. 都没有 → 返回 exe 目录/device.json，新配置将写到这里
+    """
+    if app_mode:
+        return str(Path.home() / "Library" / "Application Support" /
+                   "team-workers" / "device.json")
+    exe_dir = Path(exe_path).resolve().parent
+    cwd = cwd if cwd is not None else Path.cwd()
+    for base in (exe_dir, cwd):
+        for name in _CONFIG_NAMES:
+            candidate = base / name
+            if candidate.is_file():
+                return str(candidate.resolve())
+    return str(exe_dir / "device.json")  # 都不存在：新配置写到 exe 旁边（标准名）
+
+
 def main() -> None:
     # 从 .app 启动时没有命令行参数，这里给一套适合桌面程序的默认值：
     # 配置写用户目录、固定本机配置页端口、自动开浏览器（开机自启经 TEAM_WORKERS_NO_BROWSER=1 关掉）。
     _exe = str(Path(sys.executable).resolve())
     app_mode = (bool(getattr(sys, "frozen", False)) and sys.platform == "darwin"
                 and ".app/Contents/" in _exe)
-    default_config = (str(Path.home() / "Library" / "Application Support" /
-                          "team-workers" / "device.json") if app_mode else "device.json")
+    default_config = resolve_default_config(_exe, app_mode)
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=default_config, help="设备配置文件路径")
