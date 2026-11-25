@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=team-workers 设备端
+GenericName=team-workers Device
+Comment=远程设备控制客户端（自动打开本地配置页）
+Exec=%h/.local/bin/team-workers-device-linux
+TryExec=%h/.local/bin/team-workers-device-linux
+Icon=team-workers-device
+Terminal=false
+Categories=Utility;Network;
+StartupNotify=true

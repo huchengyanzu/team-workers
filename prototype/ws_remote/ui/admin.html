@@ -777,10 +777,14 @@
         file: 'windows-setup.ps1',
         desc: 'PowerShell 脚本，自动完成 Windows 设备端的安装与开机自启配置。',
         path: '/downloads/windows-setup.ps1' },
-      { platform: 'linux', glyph: 'L', label: 'Linux', name: '设备端 · Linux',
+      { platform: 'linux', glyph: 'L', label: 'Linux 命令行', name: '设备端 · Linux 命令行',
         file: 'team-workers-device-linux',
-        desc: 'Linux 二进制，适合服务器 / 容器；赋予执行权限后运行。',
-        path: '/downloads/team-workers-device-linux' }
+        desc: '仅提供命令行版本，无图形界面；适合服务器 / 容器 / 无桌面环境，赋予执行权限后运行。',
+        path: '/downloads/team-workers-device-linux' },
+      { platform: 'linux', glyph: 'L', label: 'Linux 图形界面', name: '设备端 · Linux 图形界面',
+        file: 'team-workers-device-linux-desktop.zip',
+        desc: '适用于 Ubuntu 等带桌面的发行版：含应用菜单启动器与图标，启动后自动打开本地配置页。',
+        path: '/downloads/team-workers-device-linux-desktop.zip' }
     ];
     var SKILL_DOWNLOAD = {
       platform: 'all', glyph: 'AI', label: '通用', name: 'device-remote skill',

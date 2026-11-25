@@ -549,6 +549,7 @@ class HttpApi:
     # 分发包下载：白名单固定文件名，防目录穿越；二进制用 application/octet-stream
     _DOWNLOADS = {
         "team-workers-device-win.exe", "team-workers-device-mac", "team-workers-device-linux",
+        "team-workers-device-linux-desktop.zip",
         "team-workers-device.app.zip", "device-remote.zip", "windows-setup.ps1",
     }
 
