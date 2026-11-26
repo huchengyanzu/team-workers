@@ -17,7 +17,7 @@ device 心跳 task 每 0.2s 发一次（patch 后）。长命令(sleep 4s)执行
 """
 import asyncio, sys, os, tempfile, time
 from pathlib import Path
-_ROOT=os.environ.get('E2E_CODE_ROOT','<repo>/prototype/ws_remote')
+_ROOT=os.environ.get('E2E_CODE_ROOT',str(Path(__file__).resolve().parents[1] / 'ws_remote'))
 sys.path.insert(0,_ROOT); sys.path.insert(0,os.environ.get('E2E_PROTO_ROOT',_ROOT))
 import server as S, user_store as US, device as D
 from websockets.asyncio.server import serve as ws_serve

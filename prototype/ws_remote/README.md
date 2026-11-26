@@ -1,11 +1,10 @@
-# WebSocket 远程控制（已部署到云端）
+# WebSocket 远程控制
 
-服务端（Linux 云机）+ 设备端（Win/Mac/Linux）+ 控制端 CLI/skill。设备启动即上线，服务端转发指令、设备执行后回传结果。
+服务端（Linux）+ 设备端（Win/Mac/Linux）+ 控制端 CLI/skill。设备启动即上线，服务端转发指令、设备执行后回传结果。
 
-> **已部署**：云端 `203.0.113.10`，systemd 服务 `team-workers.service`，公网入口 `https://hub.example.com/`，设备 WS `wss://hub.example.com/ws`。管理员账号「admin」（用户名支持中文）。公网端到端已验证（设备 wss 上线 + skill 下发命令回传 + 审计）。部署详情与回滚见 `../../deploy/README.md`。通用 agent skill 在 `../../skill/device-remote/`。
+> 部署方式见 `../../deploy/README.md`；控制端见 `../../skill/device-remote/`。
 
-> 本目录是**可运行的原型**：链路与安全机制已在本机验证，但未上真机/公网长期运行。
-> 设计文档：`docs/design/websocket-remote-skill-design.md`
+> 本目录是**可运行的原型**：链路与安全机制已通过本机与公网验证；生产使用前请按自身环境做一轮验收。
 
 ## 文件
 

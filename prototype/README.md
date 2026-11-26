@@ -157,7 +157,7 @@ HTTP 形态要登记成「远程 MCP server」，需要 DSH 侧支持 remote/str
 
 ## 装到 Windows 上时怎么配（未在真 Windows 执行，属待验证）
 
-目标场景：windows-dev（WLAN `192.168.1.10`）跑 HTTP 模式，Mac（`192.168.1.11`）上的 DSH 远程连它。以下命令按 PowerShell 写，**全部没有在真 Windows 上跑过**，只是待执行步骤。
+目标场景：Windows 开发机（WLAN `192.168.1.10`）跑 HTTP 模式，Mac（`192.168.1.11`）上的 DSH 远程连它。以下命令按 PowerShell 写，**全部没有在真 Windows 上跑过**，只是待执行步骤。
 
 ```powershell
 # 1) 生成 token（示例；也可用密码管理器生成后从文件读）

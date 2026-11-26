@@ -2,7 +2,8 @@
 """在 Windows 本机重新打包设备端单文件 exe。
 
 用法（Windows PowerShell，务必用 anaconda python）：
-    C:\\Users\\user\\anaconda3\\python.exe build_win.py
+    %USERPROFILE%\\anaconda3\\python.exe build_win.py
+    # 如不在默认位置，可用 CONDA_PYTHON 环境变量指定
 
 产物：packaging/dist/team-workers-device-win.exe
 
@@ -13,6 +14,7 @@
   本脚本会自动切到 anaconda python 重执行（若当前不是）。
 """
 from pathlib import Path
+import os
 import subprocess
 import sys
 
@@ -23,7 +25,7 @@ OUT = BASE / "dist"
 WS = BASE / "ws_remote_tmp"
 
 # ---- 强制使用 anaconda python（TLS 栈正确）----
-CONDA = Path(r"C:\Users\user\anaconda3\python.exe")
+CONDA = Path(os.environ.get("CONDA_PYTHON", str(Path.home() / "anaconda3" / "python.exe")))
 if sys.platform == "win32" and CONDA.exists() and Path(sys.executable).resolve() != CONDA.resolve():
     print("切换到 anaconda python 重执行：", CONDA, flush=True)
     rc = subprocess.run([str(CONDA), str(Path(__file__).resolve())]).returncode
@@ -36,14 +38,14 @@ WS.mkdir(parents=True, exist_ok=True)
 # 与 Downloads/exec_server.py（公司电脑临时构建结构）
 exec_server = ROOT / "prototype" / "exec_server.py"
 if not exec_server.exists():
-    alt = Path(r"C:\Users\user\Downloads\exec_server.py")
+    alt = Path(os.environ.get("EXEC_SERVER_ALT", str(Path.home() / "Downloads" / "exec_server.py")))
     if alt.exists():
         exec_server = alt
 if not exec_server.exists():
     raise SystemExit("找不到 exec_server.py")
 
 # SSL DLL（anaconda 环境）
-dll_dir = Path(r"C:\Users\user\anaconda3\Library\bin")
+dll_dir = Path(os.environ.get("CONDA_DLL_DIR", str(CONDA.parent / "Library" / "bin")))
 libssl = dll_dir / "libssl-3-x64.dll"
 libcrypto = dll_dir / "libcrypto-3-x64.dll"
 if sys.platform == "win32" and (not libssl.exists() or not libcrypto.exists()):

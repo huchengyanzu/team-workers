@@ -48,7 +48,7 @@ cp -R device-remote ~/.workbuddy/skills/
 ## 配置
 
 ```bash
-export REMOTE_SERVER='https://hub.example.com'   # 可省略，此为默认值
+export REMOTE_SERVER='https://hub.example.com'   # 示例地址，替换为你的服务端
 export REMOTE_TOKEN='<运维提供的控制 token>'
 ```
 
@@ -56,7 +56,7 @@ export REMOTE_TOKEN='<运维提供的控制 token>'
 - `REMOTE_TOKEN`：**每个用户有自己独立的控制 token**（对应请求头 `X-Control-Token`），
   由服务端管理台「用户管理」创建账号时下发（创建/重置时仅显示一次）。
   用谁的 token 就只能看到和控制谁的设备，跨用户的设备返回 404。
-  管理员的 token 即服务端 `.env` 里的 `CONTROL_TOKEN`（旧部署迁移后归管理员，保持不变）。
+  管理员可在「用户管理」里查看或重置自己的控制 token。
   **不要用设备私钥代替控制 token。**
 - **去哪里取 token**：登录管理台 `https://hub.example.com/admin.html` → 左侧「用户管理」（仅超管可见）→
   表格「控制 TOKEN」列找到自己账号，复制。普通用户看不到该页时，用下方自助注册或找超管要 token。
@@ -82,10 +82,10 @@ python3 scripts/remote.py register-confirm user@example.com 123456 'Str0ng!Pass2
 
 ## 运行环境与 TLS / OpenSSL（重要）
 
-- **服务端地址只认 `hub.example.com`**：旧地址 `old-hub.example.com` 已停用且不再解析；看到旧地址请改成 `https://hub.example.com`（设备端填 `wss://hub.example.com/ws`）。
+- **服务端地址由你的部署决定**：文档示例统一写作 `hub.example.com`；设备端填 `wss://<你的域名>/ws`。
 - **控制端 `remote.py`**：Python 3 + 标准库，无第三方依赖。Windows 上如果 TLS 握手失败，换用 **Python 3.13+（OpenSSL 3.5.x）** 或 **Anaconda Python（Python 3.11.15 + OpenSSL 3.5.5）**。查看版本：`python -c "import ssl; print(ssl.OPENSSL_VERSION)"`。
 - **设备端单文件程序**：官方下载包已内置 OpenSSL 3.5.5（Windows 随包带 `libssl-3-x64.dll` / `libcrypto-3-x64.dll`），**无需另装，也不要删除随包 DLL**。不要自行用系统 Python 重打包：系统 Python 3.13.12 + OpenSSL 3.0.18（`libssl-3.dll`）在本链路会随机握手失败。
-- **典型症状**：`ConnectionResetError [WinError 64/10054]`、`ssl.SSLError`、`Tunnel connection failed: 502`、设备一直 offline。先确认 OpenSSL 版本，再确认网络出口/代理放行 `hub.example.com:443`；代理拦截 `*.example.com` 时任何版本都连不上。
+- **典型症状**：`ConnectionResetError [WinError 64/10054]`、`ssl.SSLError`、`Tunnel connection failed: 502`、设备一直 offline。先确认 OpenSSL 版本，再确认网络出口/代理放行 `hub.example.com:443`；代理拦截该域名时任何版本都连不上。
 - **不要降级到 OpenSSL 3.0.x**：那正是会失败的栈；应升到 3.5.x 或直接使用官方包。
 
 ## 命令示例

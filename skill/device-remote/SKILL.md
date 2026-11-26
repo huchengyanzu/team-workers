@@ -39,10 +39,10 @@ python3 scripts/remote.py register-confirm user@example.com <6位验证码> 'Str
 
 ## 网络与 TLS 前置检查（连不上先看这里）
 
-- 默认 hub 是 `hub.example.com`；旧域名 `old-hub.example.com` 已停用且不再解析。文档/配置里若出现旧地址，一律替换为 `https://hub.example.com`（设备端为 `wss://hub.example.com/ws`）。
+- 服务端地址没有内置默认值：由 `config.local.json` 的 `server` 或 `REMOTE_SERVER` 提供；文档示例统一写作 `https://hub.example.com`（设备端为 `wss://hub.example.com/ws`）。
 - 本 skill 脚本只用 Python 3 标准库，但 HTTPS 依赖 Python/系统的 OpenSSL。**Windows 推荐 Python 3.13+（OpenSSL 3.5.x）或 Anaconda Python（3.11.15 + OpenSSL 3.5.5）**；用 `python -c "import ssl; print(ssl.OPENSSL_VERSION)"` 确认。不要降级到 OpenSSL 3.0.x（`libssl-3.dll`），那是已知会随机握手失败的栈。
 - 设备端官方单文件程序已内置 OpenSSL 3.5.5（Windows 随包 `libssl-3-x64.dll` / `libcrypto-3-x64.dll`），无需单独安装或删除 DLL；自编译时必须用 Anaconda Python 并带上这两个 DLL。
-- 典型失败：`ConnectionResetError [WinError 64/10054]`、`ssl.SSLError`、`Tunnel connection failed: 502`、设备持续 offline。先查 OpenSSL 版本，再查网络/代理是否放行 `hub.example.com:443`；代理拦截 `*.example.com` 时任何版本都连不上。
+- 典型失败：`ConnectionResetError [WinError 64/10054]`、`ssl.SSLError`、`Tunnel connection failed: 502`、设备持续 offline。先查 OpenSSL 版本，再查网络/代理是否放行 `hub.example.com:443`；代理拦截该域名时任何版本都连不上。
 - token 错误是 401、设备离线是 409；出现上述 TLS/网络报错时不要误判为 token 问题。
 
 ## 命令清单

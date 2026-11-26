@@ -1,54 +1,73 @@
-# team-workers 部署包
+# team-workers 部署
 
-服务端已部署到云端 `203.0.113.10`，systemd 服务 `team-workers.service`，公网入口 `https://hub.example.com/remote/`。
+服务端是纯 Python 标准库 + `websockets` 的常驻进程，推荐部署在 Linux 主机上，
+前面用 Caddy / Nginx 终止 TLS 并反代到本机回环端口。仓库提供 systemd 示例
+`deploy/team-workers.service`，其余步骤与具体云厂商无关。
 
-## 部署结果（2026-11-20 实测）
-
-| 项 | 值 |
-|---|---|
-| 公网入口 | `https://hub.example.com/remote/`（管理台/API） |
-| 设备 WS | `wss://hub.example.com/remote/ws` |
-| 云端目录 | `/opt/team-workers`（独立，不动任何现有业务） |
-| 内部端口 | HTTP `127.0.0.1:18766`、WS `127.0.0.1:18765`（仅回环，不对外） |
-| systemd | `team-workers.service`，active + enabled，开机自启 |
-| 数据库 | `/opt/team-workers/data/hub.db`（含 logs_YYYYMM 按月表） |
-| 凭证 | `/opt/team-workers/.env`（0700，管理员「admin」口令 + 控制 token，不在仓库明文保存）。用户名支持中文（已修 `compare_digest` 仅 ASCII 的限制）。 |
-| Caddy | `/opt/mycli-edge/Caddyfile` 内新增 `team-workers` 段（备份 `.bak.*`），reload 不中断现有业务 |
-| 资源占用 | 内存 ~18MB（2C2G 云机无压力） |
-
-## 文件
-
-| 文件 | 用途 |
-|---|---|
-| `cloud_stage1.sh` | 阶段1：部署服务端本体（独立目录 + venv + systemd + 本机回环自检） |
-| `cloud_stage2_caddy.sh` | 阶段2：Caddy 加 `/remote` 反代（备份 + adapt 校验 + 失败自动回滚 + 公网自检） |
-| `cloud_verify.sh` / `cloud_fix_and_verify.sh` / `cloud_cleanup_verify.sh` | 云端端到端验证与清理 |
-| `team-workers.service` | systemd unit |
-| `caddy-snippet.txt` | Caddy 反代段（供人工核对） |
-| `rollback.sh` | 回滚脚本（停服务 + 恢复 Caddyfile + reload） |
-
-## 部署流程（通过 windows-dev 的 ssh_run.py / ssh_put.py）
+## 1. 准备
 
 ```bash
-# 本地打包（含全部 py + ui + exec_server.py 执行内核 + .env）
-tar -czf /tmp/team-workers.tar.gz -C /tmp team-workers-pkg
+# 目录可自定义
+sudo mkdir -p /opt/team-workers
+sudo cp -a ./. /opt/team-workers/
+cd /opt/team-workers
 
-# 传到 windows-dev → 云端
-scp /tmp/team-workers.tar.gz user@192.168.1.10:C:\\Users\\user\\team-workers.tar.gz
-# windows-dev 上：python ssh_put.py <本地> /tmp/team-workers.tar.gz
-
-# 云端执行（ssh_run.py 上传脚本后执行）
-# 1) cloud_stage1.sh  2) cloud_stage2_caddy.sh  3) cloud_verify.sh
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
 ```
 
-注意：设备端 `device.py` 依赖 `prototype/exec_server.py`（执行内核），**打包时必须包含**，否则云端设备端起不来（本次踩过此坑，已在 packaging 修正）。
+## 2. 配置环境变量
 
-## 回滚
+```bash
+# /opt/team-workers/.env（权限 600，勿提交）
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=<强口令，至少 12 位，含大小写/数字/符号>
+CONTROL_TOKEN=<随机串，可用 python3 -c "import secrets;print(secrets.token_urlsafe(32))" 生成>
+RESEND_API_KEY=<可选，邮箱验证码用>
+TEAM_WORKERS_EMAIL_FROM=team-workers <no-reply@notify.example.com>
+TEAM_WORKERS_EMAIL_REPLY_TO=support@example.com
+```
 
-在云端执行 `deploy/rollback.sh`：停止并禁用服务、用最近备份恢复 Caddyfile、reload。只移除新增内容，不影响现有 frp/OpenIM/班宠星球业务。
+服务只监听回环：
 
-## 安全
+- HTTP API / 管理台：`127.0.0.1:18766`
+- WebSocket 设备长链：`127.0.0.1:18765`
 
-- 服务端仅监听回环，公网入口由 Caddy 8443 反代；TLS 由现成 `hub.example.com` 证书提供，`--cookie-secure` 已开。
-- 控制 token 供 skill/CLI 用，管理员口令供 Web 登录用，二者分离，均只在 `.env`（0700）。
-- 本机（Mac）出口对 8443 的直连被网络环境 reset，端到端验证在云端容器内完成（wss 长链 + skill 闭环全过）；这不影响目标用户经正常网络访问。
+## 3. 启动与自检
+
+```bash
+set -a; source .env; set +a
+venv/bin/python server.py --db ./data/hub.db \
+  --admin-email "$ADMIN_EMAIL" --admin-pass "$ADMIN_PASSWORD" \
+  --control-token "$CONTROL_TOKEN" --cookie-secure
+
+# 自检
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:18766/login.html
+```
+
+长期运行建议交给 systemd：
+
+```bash
+sudo cp deploy/team-workers.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now team-workers.service
+```
+
+## 4. 反向代理与 TLS
+
+把管理台与 API 反代到 `127.0.0.1:18766`，把设备 WebSocket 反代到
+`127.0.0.1:18765`，并在代理层启用 TLS。设备端填写的地址必须以 `/ws` 结尾
+（例如 `wss://<你的域名>/ws`）。
+
+## 5. 回滚
+
+- 停止并禁用服务：`sudo systemctl disable --now team-workers.service`
+- 恢复反向代理配置并 reload
+- 数据在 `/opt/team-workers/data/hub.db`，如需回滚版本，直接替换代码目录后重启
+
+## 安全要点
+
+- 服务端只绑定回环，公网入口统一走反代。
+- `ADMIN_PASSWORD` 与控制 token 分离，均只放在 `.env`（600），不入库。
+- 首次登录后建议在管理台立即修改管理员口令；怀疑泄露时轮换控制 token。
+- 设备私钥只在创建/重置时显示一次，不落盘、不入日志。

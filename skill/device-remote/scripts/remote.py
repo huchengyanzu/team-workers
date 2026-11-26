@@ -9,8 +9,8 @@
   脚本同目录 config.local.json > 默认值。
 config.local.json 形如 {"server":"https://hub.example.com","token":"<token>"}，
 用于 exec 子进程不共享环境变量的场景（如 myclaw），配置一次后免参调用；该文件勿提交版本库。
-服务端默认 https://hub.example.com，请求路径 = base + /api/...。
-旧域名 old-hub.example.com 已停用不再解析。HTTPS 依赖 Python/系统 OpenSSL：Windows 上
+服务端地址由 --base / REMOTE_SERVER / config.local.json 提供，文档示例为 https://hub.example.com；
+请求路径 = base + /api/...。HTTPS 依赖 Python/系统 OpenSSL：Windows 上
 若出现 ConnectionResetError [WinError 64/10054] / ssl.SSLError，优先换 Python 3.13+
 (OpenSSL 3.5.x) 或 Anaconda Python；不要用 OpenSSL 3.0.x (libssl-3.dll)。
 
@@ -44,8 +44,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# 服务端默认对外前缀（Caddy 反代），可用 --base / REMOTE_SERVER 覆盖。
-DEFAULT_BASE = "https://hub.example.com"
+# 服务端根地址没有内置默认值：由 --base / REMOTE_SERVER / config.local.json 提供。
+DEFAULT_BASE = ""
 # 服务端同步等待任务结果的超时为 15s，客户端 HTTP 超时放宽到 30s，
 # 以便能收到服务端返回的 {state: "timeout"} 响应而不是自己先超时。
 HTTP_TIMEOUT = 30
@@ -1106,7 +1106,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--base", default=None,
-        help="服务端根地址（默认读 REMOTE_SERVER，否则 %s）" % DEFAULT_BASE,
+        help="服务端根地址（默认读 REMOTE_SERVER 或 config.local.json）",
     )
     parser.add_argument(
         "--token", default=None,
@@ -1214,6 +1214,9 @@ def resolve_config(args: argparse.Namespace) -> None:
     local = _load_local_config()
     args.base = (args.base or os.environ.get("REMOTE_SERVER")
                  or local.get("server") or DEFAULT_BASE)
+    if not args.base:
+        fail("未设置服务端地址：请使用 --base、REMOTE_SERVER，"
+             "或在 scripts/config.local.json 中配置 server。")
     args.token = (args.token or os.environ.get("REMOTE_TOKEN")
                   or local.get("token") or "")
     # 注册流程无需 token（尚未有账号）
