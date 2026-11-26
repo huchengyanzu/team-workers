@@ -3,7 +3,7 @@ name: device-remote
 description: >
   远程设备控制。当用户要求「遥控某台设备」「看看某台设备在不在线 / 查设备状态 / 列出设备」、
   「在某台机器上执行一条命令 / 下发指令 / 跑个命令看输出」、「查询已下发的长任务结果」、
-  「新增一台受控设备 / 重置设备私钥 / 禁用或删除设备」时使用。
+  「把设备上的文件安全取到本机」、「新增一台受控设备 / 重置设备私钥 / 禁用或删除设备」时使用。
   通过 WebSocket 远程控制服务端（hub）的 REST API 操作受控设备；
   所有控制端请求用 X-Control-Token 鉴权。涉及设备侧命令的风险分级与二次确认规则见正文。
 ---
@@ -13,7 +13,7 @@ description: >
 控制端 skill：经 hub 的 REST API 遥控已登记设备。不连真机、不读设备私钥、不部署服务端。
 脚本 `scripts/remote.py` 仅依赖 Python 3 标准库。
 
-统一前缀：`python3 scripts/remote.py [--json] <子命令> ...`（`--json` 输出原始 JSON）。
+统一前缀：`python3 scripts/remote.py [--json] <子命令> ...`。`exec` / `pull` 的 `--json` 输出统一结构化回执；其它子命令保持原始 JSON。
 
 ## 配置 token
 
@@ -50,9 +50,10 @@ python3 scripts/remote.py register-confirm user@example.com <6位验证码> 'Str
 | 命令 | 用法 | 要点 |
 |---|---|---|
 | `list` | `list` | 设备 ID/名称/平台/状态/心跳；在线只看 status |
-| `exec` | `exec dev-xxxx -- <命令> [参数...]` | `--` 后为设备命令（参数可带 `-`）；15s 内直接出结果，超时返回 task_id；离线返回 409 |
+| `exec` | `exec [--expect-hostname HOST] <设备ID或名称> -- <命令> [参数...]` | `--` 后为设备命令；统一回执含 stdout/退出码/双耗时；超时返回 task_id；失败非零退出 |
+| `pull` | `pull [--expect-hostname HOST] <设备ID或名称> <远程路径> [--name 文件名] [--overwrite]` | 来源预检 + 字节校验后原子保存到 `~/Downloads`；默认防覆盖 |
 | `task` | `task task-xxxx` | 查长任务：queued/dispatched/done/failed/timeout |
-| `file-read` | `file-read dev-xxxx <路径> [-o 本地文件]` | base64 传输，单文件上限 8MB |
+| `file-read` | `file-read dev-xxxx <路径> [-o 本地文件]` | 旧式 base64 直读；安全下载请用 `pull`；单文件上限 8MB |
 | `file-write` | `file-write dev-xxxx <路径> --from 本地文件` | 覆盖写 |
 | `file-list` | `file-list dev-xxxx <路径>` | 列目录 |
 | `create` | `create "显示名" macos\|win\|linux` | 返回一次性私钥，不落盘 |
@@ -63,6 +64,27 @@ python3 scripts/remote.py register-confirm user@example.com <6位验证码> 'Str
 
 `exec` 走设备命令白名单；`file-*` 是设备端原生文件原语，不受 exec 白名单限制，支持二进制与分块传输。
 
+## A/B：可信 exec 回执与安全 pull
+
+```bash
+# 绿级只读命令直接执行；主机名不匹配会拒发
+python3 scripts/remote.py exec --expect-hostname EXAMPLE-HOST dev-xxxx -- cmd /c ver
+python3 scripts/remote.py --json exec --expect-hostname EXAMPLE-HOST dev-xxxx -- cmd /c ver
+
+# 先预检桌面文件，再严格解码并原子保存到 ~/Downloads
+python3 scripts/remote.py pull --expect-hostname EXAMPLE-HOST dev-xxxx 'C:\Users\user\Desktop\demo.txt'
+# 默认文件名：demo_<task_id>.txt；需要指定名字时仅可传单个 basename
+python3 scripts/remote.py pull dev-xxxx 'C:\Users\user\Desktop\demo.txt' --name demo.txt
+# 已存在同名文件：非交互模式默认冲突；确认覆盖必须显式加 --overwrite
+python3 scripts/remote.py pull dev-xxxx 'C:\Users\user\Desktop\demo.txt' --overwrite
+```
+
+- 设备目标支持精确 `device_id` 或唯一 `display_name`，必须在线且启用；`--expect-hostname` 精确比对 `info.hostname`。
+- `exec` 回执包含 `task_id`、`target{device_id,display_name,hostname}`、`command`、`status`、`stdout`、`stderr`、`exit_code`、`duration_ms`、`elapsed_ms`、`error`。非零退出码保留原值，CLI 以非零状态结束；连接失败、离线、超时、协议错误不会伪装成命令失败。
+- `pull` 回执包含 `task_id`、`preflight_task_id`、`target`、`source_path`、`destination_path`、`status`、`expected_bytes`、`actual_bytes`、`elapsed_ms`、`error`。base64 严格解码，传输大小与预检大小都必须一致，否则不落盘。
+- 默认落地根为解析后的 `~/Downloads`；默认名 `<stem>_<task_id><suffix>`。目标被限制在下载根内，拒绝最终软链接和目录；临时文件同目录写盘、fsync、字节复核后原子发布。
+- 同名文件默认冲突并展示源/目标/大小。交互模式只接受精确“确认”，其它输入均取消；非交互或 `--json` 模式必须显式 `--overwrite`。确认前不创建临时文件，默认发布使用 no-replace，绝不安静覆盖。
+
 ## 安全规则：指令分级（下发前必判）
 
 按命令**实际影响**判断，不以字面为准：
@@ -70,7 +92,7 @@ python3 scripts/remote.py register-confirm user@example.com <6位验证码> 'Str
 | 级别 | 典型操作 | 处理 |
 |---|---|---|
 | 🟢 绿 | 只读：cat/head/tail/ls/pwd/ps、状态与磁盘网络查询 | 直接执行，按三段式回执 |
-| 🟡 黄 | 覆盖/移动文件、写非登记目录、改配置、装依赖 | 先告知对象与预计影响，获同意再下发，不得扩大范围 |
+| 🟡 黄 | 覆盖/移动文件、写非登记目录、改配置、装依赖；`pull --overwrite` 覆盖本地同名文件 | 先告知对象与预计影响，获同意再下发，不得扩大范围 |
 | 🔴 红 | 删除、关机重启、写系统目录（/etc、/usr、/System、C:\Windows）、不可逆批量、清空日志/数据库 | 强制二次确认，见下 |
 
 **红级二次确认（强制）**
@@ -87,6 +109,8 @@ python3 scripts/remote.py register-confirm user@example.com <6位验证码> 'Str
 1. **做了什么**：一句话说明操作 + 设备/工具。
 2. **对象 + 数量**：设备 ID、文件/进程等对象与数量。
 3. **失败原因 + ≤2 条建议**：有失败才给，最多 2 条可执行建议；无失败写「无失败」。
+
+`exec` / `pull` 的三段式说明必须同时保留结构化回执关键字段：任务编号、固定目标、状态；命令输出/退出码/双耗时，或文件源/目标/预期与实际字节数。不得只回“完成”，也不得把 token 或设备私钥写入回执。
 
 ## 设备离线：零静默
 

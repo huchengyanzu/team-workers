@@ -1,7 +1,7 @@
 # device-remote（远程设备控制 skill）
 
 一个通用的 Agent Skill，让 AI 助手通过远程控制服务端（hub）的 REST API 操作受控设备：
-列设备、查状态、下发命令、查长任务、创建/管理设备。纯 Python 标准库实现，
+列设备、查状态、下发命令、查长任务、安全拉取文件、创建/管理设备。纯 Python 标准库实现，
 兼容 Claude Code / Cursor / WorkBuddy。
 
 > 本技能只面向控制端：不连真机、不部署服务端、不读取设备私钥文件、不打印 token 明文。
@@ -94,9 +94,19 @@ python3 scripts/remote.py register-confirm user@example.com 123456 'Str0ng!Pass2
 # 列设备（ID / 名称 / 平台 / 状态 / 最后心跳）
 python3 scripts/remote.py list
 
-# 下发 exec 命令：用 -- 分隔，使 -la 等参数不被当成脚本选项
-python3 scripts/remote.py exec dev-xxxx -- echo hi
+# 下发 exec：设备可用 ID 或唯一显示名；expect-hostname 必须精确匹配
+python3 scripts/remote.py exec --expect-hostname EXAMPLE-HOST dev-xxxx -- cmd /c ver
 python3 scripts/remote.py exec dev-xxxx -- ls -la /tmp
+# --json 输出统一回执：stdout/退出码/设备耗时/端到端耗时/错误分类
+python3 scripts/remote.py --json exec dev-xxxx -- cmd /c ver
+
+# 安全拉取文件到 ~/Downloads：先预检，再严格解码与字节校验，最后原子落盘
+python3 scripts/remote.py pull --expect-hostname EXAMPLE-HOST dev-xxxx 'C:\Users\user\Desktop\demo.txt'
+# 默认名为 demo_<task_id>.txt；--name 仅接受单个 basename
+python3 scripts/remote.py pull dev-xxxx 'C:\Users\user\Desktop\demo.txt' --name demo.txt
+# 同名文件默认冲突；确认覆盖时显式加 --overwrite
+python3 scripts/remote.py pull dev-xxxx 'C:\Users\user\Desktop\demo.txt' --overwrite
+python3 scripts/remote.py --json pull dev-xxxx 'C:\Users\user\Desktop\demo.txt'
 
 # 长任务：15s 内无结果会返回 task_id，用 task 查询
 python3 scripts/remote.py task task-xxxxxxxx
@@ -116,15 +126,25 @@ python3 scripts/remote.py --json list
 
 ### 工具白名单
 
-仅 `exec` / `start_job` / `query_job` / `cancel_job` 可用；其它工具服务端返回 400。
+可用工具为 `exec` / `start_job` / `query_job` / `cancel_job` / `file_read` / `file_write` / `file_list`；其它工具服务端返回 400。
 `exec` 的 `arguments` 为 `{"command": ["命令名", "参数1", ...]}`。
+
+### exec / pull 结构化回执
+
+- 目标解析：精确 `device_id` 优先，否则匹配唯一 `display_name`；设备必须在线且启用。`--expect-hostname` 精确比对 `info.hostname`，不匹配不下发。
+- `exec`：回执含 `task_id`、`target`、`command`、`status`、`stdout`、`stderr`、`exit_code`、`duration_ms`、`elapsed_ms`、`error`。命令非零退出保留真实退出码；连接/超时/协议错误有独立状态；任何失败 CLI 都非零退出。
+- `pull`：回执含 `task_id`、`preflight_task_id`、`target`、`source_path`、`destination_path`、`status`、`expected_bytes`、`actual_bytes`、`elapsed_ms`、`error`。来源先经 `file_list` 确认为普通文件并记录大小，再经 `file_read` 严格 base64 解码；解码长度、读取大小、预检大小不一致均不落盘。
+- 落盘安全：默认根为解析后的 `~/Downloads`，默认名 `<stem>_<task_id><suffix>`；`--name` 拒绝路径分隔符、`.`、`..` 和空名。目标限制在下载根内，拒绝最终软链接与目录；同目录临时件写盘/fsync/复核后原子发布。
+- 防覆盖：同名文件默认 `conflict`，展示源/目标/大小。交互模式只接受精确“确认”，其它输入为 `cancel`；非交互或 `--json` 模式需显式 `--overwrite`。确认前不写临时文件；默认发布 no-replace，`--overwrite` 才用原子替换。
 
 ### 错误码提示
 
-- `401`：控制 token 错误 → 检查 `REMOTE_TOKEN` / `--token`。
-- `409`：设备离线 → 明确回「离线」，附设备 ID，不静默。
-- `400`：tool 不在白名单或参数错误。
-- 请求超时：提示服务端不可达 / 网络过慢。
+- `401` → `auth_error`：控制 token 错误 → 检查 `REMOTE_TOKEN` / `--token`。
+- `403` → `permission_error`；`404` → `not_found`；`409` → `offline`，明确回「离线」并附设备 ID。
+- `400` → `rejected`；`429` → `rate_limited`；其它 HTTP 错误 → `http_error`。
+- 网络失败 → `connect_error`；传输/回执/执行超时 → `timeout`；缺字段或类型非法 → `protocol_error`。
+- 命令非零退出或设备返回 `ok=false` → `command_failed`，保留真实退出码（如有）。
+- `pull` 另有 `source_not_found` / `source_changed` / `conflict` / `cancel` / `io_error`；失败均不静默。
 
 ## 安全规则摘要
 
@@ -141,7 +161,8 @@ python3 scripts/remote.py --json list
 ## 回执格式
 
 每次操作后按三段式回执：①做了什么 ②对象+数量 ③失败原因+≤2 条建议（无失败写"无失败"）。
-设备离线必须明确回复「离线」，零静默。
+`exec` / `pull` 还必须保留任务编号、固定目标、状态及输出/退出码/双耗时或源/目标/字节数，不得只回“完成”。
+设备离线必须明确回复「离线」，零静默；token 与设备私钥不得进入日志或回执。
 
 ## 设备端程序使用说明
 
