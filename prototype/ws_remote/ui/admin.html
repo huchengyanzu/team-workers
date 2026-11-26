@@ -32,7 +32,7 @@
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="stylesheet" href="theme.css">
 </head>
-<body>
+<body class="admin-page">
   <div class="app">
     <!-- 左侧导航 -->
     <aside class="sidebar">
@@ -48,26 +48,26 @@
         <span class="brand-name">team-<b>workers</b></span>
       </div>
       <div class="nav-title">工作台</div>
-      <nav class="nav">
-        <button class="nav-item active" data-view="overview">
+      <nav class="nav" aria-label="主导航">
+        <button class="nav-item active" data-view="overview" aria-current="page">
           <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5" stroke="currentColor" stroke-width="1.8"/><rect x="14" y="3" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="1.8"/><rect x="14" y="10" width="7" height="11" rx="1.5" stroke="currentColor" stroke-width="1.8"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.8"/></svg></span>
-          <span class="nav-text"><span class="nav-label">总览</span><span class="nav-sub">设备与指令实时快照</span></span>
+          <span class="nav-text"><span class="nav-label">总览</span></span>
         </button>
         <button class="nav-item" data-view="devices">
           <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="7.5" cy="10" r="1.2" fill="currentColor"/><path d="M11 10h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
-          <span class="nav-text"><span class="nav-label">设备</span><span class="nav-sub">注册、状态与私钥</span></span>
+          <span class="nav-text"><span class="nav-label">设备</span></span>
         </button>
         <button class="nav-item hidden" id="nav-users" data-view="users">
           <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="9" cy="8" r="3.2" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16 6.5a3 3 0 0 1 0 5.5M17 14c2.3.6 3.8 2.4 3.8 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
-          <span class="nav-text"><span class="nav-label">用户管理</span><span class="nav-sub">账号与权限 · 仅超管</span></span>
+          <span class="nav-text"><span class="nav-label">用户管理</span></span>
         </button>
         <button class="nav-item" data-view="logs">
           <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 4h14M5 9h14M5 14h9M5 19h11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="19" cy="17" r="2.5" stroke="currentColor" stroke-width="1.6"/></svg></span>
-          <span class="nav-text"><span class="nav-label">日志</span><span class="nav-sub">按月归档可追溯</span></span>
+          <span class="nav-text"><span class="nav-label">日志</span></span>
         </button>
         <button class="nav-item" data-view="downloads">
           <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-          <span class="nav-text"><span class="nav-label">下载中心</span><span class="nav-sub">设备端与 AI Skill</span></span>
+          <span class="nav-text"><span class="nav-label">下载中心</span></span>
         </button>
       </nav>
       <div class="sidebar-foot">team-workers v0.1.0<br>远程控制中枢
@@ -82,7 +82,7 @@
       <!-- 顶栏 -->
       <header class="topbar">
         <div class="topbar-left">
-          <div class="card-title" id="bar-title">概览</div>
+          <h1 class="topbar-title" id="bar-title">概览</h1>
           <button class="btn-refresh" id="btn-refresh" type="button" title="刷新当前视图" aria-label="刷新当前视图"><span class="refresh-ico" aria-hidden="true">↻</span></button>
         </div>
         <div class="account-chip">
@@ -96,7 +96,6 @@
       <div class="content">
         <!-- ============ 视图 1：概览 ============ -->
         <section id="view-overview" class="view">
-          <div class="view-head"><h2>概览</h2><p>设备与操作的实时快照</p></div>
           <div class="stat-grid">
             <div class="stat stat-accent"><div class="stat-label">设备总数</div><div class="stat-value" id="stat-total">—</div><div class="stat-foot">已注册设备</div></div>
             <div class="stat stat-accent"><div class="stat-label">在线设备</div><div class="stat-value" id="stat-online">—</div><div class="stat-foot">当前长链在线</div></div>
@@ -105,8 +104,12 @@
           </div>
           <div class="card">
             <div class="card-head">
-              <div><div class="card-title">最近操作日志</div><div class="card-sub">最新审计记录</div></div>
+              <div><h2 class="card-title">最近操作日志</h2><div class="card-sub">最新审计记录</div></div>
               <button class="btn btn-ghost btn-sm" id="goto-logs">查看全部 →</button>
+            </div>
+            <div class="inline-error hidden" id="overview-error" role="alert">
+              <span id="overview-error-text"></span>
+              <button class="btn btn-ghost btn-sm" id="overview-retry" type="button">重试</button>
             </div>
             <div class="table-wrap"><table class="table">
               <thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>结果</th></tr></thead>
@@ -117,19 +120,48 @@
 
         <!-- ============ 视图 2：设备管理 ============ -->
         <section id="view-devices" class="view hidden">
-          <div class="view-head row-between">
-            <div>
-              <h2>设备管理</h2>
-              <p>创建设备、启停控制与私钥重置</p>
-              <div class="ws-endpoint">
-                <span class="ws-endpoint-label">WebSocket 服务地址</span>
-                <code id="ws-endpoint">—</code>
-                <button class="btn btn-ghost btn-sm" id="btn-copy-ws" type="button">复制</button>
+          <div class="device-stat-grid" role="group" aria-label="设备状态摘要">
+            <div class="stat"><div class="stat-label">设备总数</div><div class="stat-value" id="device-stat-total">—</div></div>
+            <div class="stat"><div class="stat-label">在线设备</div><div class="stat-value" id="device-stat-online">—</div></div>
+            <div class="stat"><div class="stat-label">已启用设备</div><div class="stat-value" id="device-stat-enabled">—</div></div>
+          </div>
+          <div class="card access-panel">
+            <div class="card-head"><h2 class="card-title">接入与创建</h2></div>
+            <div class="access-panel-body">
+              <div class="ws-panel">
+                <div class="ws-endpoint">
+                  <span class="ws-endpoint-label">WebSocket 服务地址</span>
+                  <code id="ws-endpoint">—</code>
+                  <button class="btn btn-ghost btn-sm" id="btn-copy-ws" type="button" aria-label="复制 WebSocket 服务地址">复制</button>
+                </div>
+              </div>
+              <button class="btn btn-primary" id="btn-create" type="button">+ 创建设备</button>
+            </div>
+          </div>
+          <div class="card device-list-card">
+            <div class="card-head">
+              <div class="card-heading">
+                <h2 class="card-title">设备列表</h2>
+                <span class="card-count" id="device-result-count" role="status" aria-live="polite" aria-atomic="true">正在加载…</span>
               </div>
             </div>
-            <button class="btn btn-primary" id="btn-create">+ 创建设备</button>
-          </div>
-          <div class="card">
+            <div class="list-toolbar">
+              <div class="field toolbar-search">
+                <label class="sr-only" for="device-search">搜索设备</label>
+                <input class="input" id="device-search" type="search" placeholder="搜索显示名、设备 ID 或平台" autocomplete="off">
+              </div>
+              <div class="field toolbar-filter">
+                <label class="sr-only" for="device-status-filter">设备状态</label>
+                <select class="select" id="device-status-filter">
+                  <option value="all">全部状态</option><option value="online">在线</option><option value="offline">离线</option>
+                </select>
+              </div>
+              <button class="btn btn-ghost" id="device-clear-filters" type="button" disabled>清除条件</button>
+            </div>
+            <div class="inline-error hidden" id="device-error" role="alert">
+              <span id="device-error-text"></span>
+              <button class="btn btn-ghost btn-sm" id="device-retry" type="button">重试</button>
+            </div>
             <div class="table-wrap"><table class="table">
               <thead><tr>
                 <th>显示名</th><th>设备 ID</th><th>平台</th><th>状态</th>
@@ -142,33 +174,49 @@
 
         <!-- ============ 视图 3：操作日志 ============ -->
         <section id="view-logs" class="view hidden">
-          <div class="view-head"><h2>操作日志</h2><p>按月分表归档（logs_YYYYMM），支持按天与多维筛选</p></div>
-          <div class="card card-pad">
-            <div class="filters">
-              <div class="field"><label class="label">日期</label><input id="log-day" class="input input-mono" type="date" title="精确到某一天（本地时区），留空则查询整月"></div>
-              <div class="field"><label class="label">操作人</label><input id="f-actor" class="input" placeholder="全部"></div>
-              <div class="field"><label class="label">动作</label><input id="f-action" class="input" list="action-options" placeholder="全部 / 可输入" autocomplete="off"><datalist id="action-options"></datalist></div>
-              <div class="field"><label class="label">结果</label>
-                <select id="f-result" class="select">
-                  <option value="">全部</option><option value="success">成功</option><option value="fail">失败</option>
-                </select>
+          <div class="card log-filters">
+            <div class="card-head">
+              <h2 class="card-title">筛选日志</h2>
+            </div>
+            <div class="card-body">
+              <div class="filters">
+                <div class="field"><label class="label" for="log-day">日期</label><input id="log-day" class="input input-mono" type="date" title="精确到某一天（本地时区），留空则查询整月"></div>
+                <div class="field"><label class="label" for="f-actor">操作人</label><input id="f-actor" class="input" placeholder="全部"></div>
+                <div class="field"><label class="label" for="f-action">动作</label><input id="f-action" class="input" list="action-options" placeholder="全部 / 可输入" autocomplete="off"><datalist id="action-options"></datalist></div>
+                <div class="field"><label class="label" for="f-result">结果</label>
+                  <select id="f-result" class="select">
+                    <option value="">全部</option><option value="success">成功</option><option value="fail">失败</option>
+                  </select>
+                </div>
+                <button class="btn btn-primary" id="btn-search" type="button">查询</button>
               </div>
-              <button class="btn btn-primary" id="btn-search">查询</button>
             </div>
           </div>
           <div class="card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">查询结果</h2>
+                <div class="result-meta" role="status" aria-live="polite" aria-atomic="true">
+                  <span id="log-result-scope">当前日期</span><span id="log-result-total">—</span>
+                </div>
+              </div>
+            </div>
+            <div class="inline-error hidden" id="logs-error" role="alert">
+              <span id="logs-error-text"></span>
+              <button class="btn btn-ghost btn-sm" id="logs-retry" type="button">重试</button>
+            </div>
             <div class="table-wrap"><table class="table" id="logs-table">
               <thead><tr><th>时间</th><th>操作人</th><th>来源IP</th><th>动作</th><th>对象</th><th>详情</th><th>结果</th></tr></thead>
               <tbody id="logs-body"></tbody>
             </table></div>
-            <div class="pager" style="padding:var(--sp-4) var(--sp-6)">
+            <div class="pager card-pager">
               <span class="pager-info" id="pager-info">—</span>
               <div class="pager-btns">
                 <button class="btn btn-ghost btn-sm" id="page-prev">上一页</button>
                 <span class="pager-info" id="page-indicator">1 / 1</span>
                 <button class="btn btn-ghost btn-sm" id="page-next">下一页</button>
                 <span class="pager-info" style="margin-left:var(--sp-3)">跳至</span>
-                <input id="page-goto" class="input input-mono" type="number" min="1" step="1" style="width:64px;text-align:center" placeholder="页">
+                <input id="page-goto" class="input input-mono" type="number" min="1" step="1" style="width:64px;text-align:center" placeholder="页" aria-label="跳转页码">
                 <button class="btn btn-ghost btn-sm" id="page-goto-btn">跳转</button>
               </div>
             </div>
@@ -177,11 +225,15 @@
 
         <!-- ============ 视图 4：用户管理（管理员） ============ -->
         <section id="view-users" class="view hidden">
-          <div class="view-head row-between">
-            <div><h2>用户管理</h2><p>每个用户只能看到并控制自己的设备；可在此新增账号</p></div>
-            <button class="btn btn-primary" id="btn-user-create">+ 新建用户</button>
-          </div>
           <div class="card">
+            <div class="card-head">
+              <h2 class="card-title">用户列表</h2>
+              <button class="btn btn-primary" id="btn-user-create" type="button">+ 新建用户</button>
+            </div>
+            <div class="inline-error hidden" id="users-error" role="alert">
+              <span id="users-error-text"></span>
+              <button class="btn btn-ghost btn-sm" id="users-retry" type="button">重试</button>
+            </div>
             <div class="table-wrap"><table class="table">
               <thead><tr>
                 <th>邮箱</th><th>角色</th><th>状态</th><th>控制 Token</th><th>创建时间</th><th class="nowrap">操作</th>
@@ -189,13 +241,11 @@
               <tbody id="users-body"></tbody>
             </table></div>
           </div>
-          <p class="hint" style="margin-top:var(--sp-3)">控制 Token 供各用户的 Agent Skill 使用（REMOTE_TOKEN）。出于安全，任何人（含管理员）都只能查看和重置自己的 Token，无法看到或操作他人的 Token。</p>
         </section>
 
         <!-- ============ 视图 5：下载中心（纯静态 + UA 检测，不调 API） ============ -->
         <section id="view-downloads" class="view hidden">
-          <div class="view-head"><h2>下载中心</h2><p>获取设备端程序、NAS 容器端部署文档与 AI Skill；已根据你的系统推荐对应版本</p></div>
-          <div class="notice notice-brand">
+          <div class="notice notice-brand system-detect-bar" role="status" aria-live="polite">
             <span class="notice-icon" aria-hidden="true">ⓘ</span>
             <span id="dl-detect-bar">正在检测你的系统…</span>
           </div>
@@ -217,7 +267,7 @@
   </div>
 
   <div id="modal-root"></div>
-  <div id="toast-root"></div>
+  <div id="toast-root" role="status" aria-live="polite" aria-atomic="false"></div>
 
   <script>
   (function () {
@@ -305,19 +355,52 @@
     }
 
     /* ---------- 弹窗 ---------- */
-    function closeModal() { clear($('modal-root')); }
+    var modalReturnFocus = null;
+    function closeModal() {
+      var root = $('modal-root');
+      if (!root.firstChild) return;
+      clear(root);
+      var target = modalReturnFocus;
+      modalReturnFocus = null;
+      if (target && document.contains(target)) target.focus();
+    }
     function openModal(inner) {
+      if ($('modal-root').firstChild) closeModal();
+      modalReturnFocus = document.activeElement;
       var mask = el('div', { cls: 'modal-mask', on: { click: function (e) { if (e.target === mask) closeModal(); } } });
       mask.appendChild(inner);
       clear($('modal-root')); $('modal-root').appendChild(mask);
+      var first = inner.querySelector('input:not([disabled]), select:not([disabled]), textarea:not([disabled])')
+        || inner.querySelector('button:not([disabled]), a[href]');
+      if (first) first.focus();
+      else { inner.setAttribute('tabindex', '-1'); inner.focus(); }
     }
+    document.addEventListener('keydown', function (e) {
+      var mask = $('modal-root').firstChild;
+      if (!mask) return;
+      if (e.key === 'Escape') { e.preventDefault(); closeModal(); return; }
+      if (e.key !== 'Tab') return;
+      var items = Array.prototype.slice.call(mask.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ));
+      if (!items.length) { e.preventDefault(); return; }
+      var first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || !mask.contains(document.activeElement))) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !mask.contains(document.activeElement))) {
+        e.preventDefault(); first.focus();
+      }
+    });
     function modalShell(title, bodyKids, footKids, wide) {
       var body = el('div', { cls: 'modal-body' }, bodyKids);
       var foot = el('div', { cls: 'modal-foot' }, footKids);
-      return el('div', { cls: 'modal' + (wide ? ' modal-wide' : '') }, [
+      return el('div', {
+        cls: 'modal' + (wide ? ' modal-wide' : ''),
+        attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modal-title', tabindex: '-1' }
+      }, [
         el('div', { cls: 'modal-head' }, [
-          el('div', { cls: 'modal-title', text: title }),
-          el('button', { cls: 'icon-btn', text: '×', title: '关闭', on: { click: closeModal } })
+          el('h2', { cls: 'modal-title', attrs: { id: 'modal-title' }, text: title }),
+          el('button', { cls: 'icon-btn', text: '×', title: '关闭', attrs: { 'aria-label': '关闭弹窗' }, on: { click: closeModal } })
         ]), body, foot
       ]);
     }
@@ -346,14 +429,15 @@
 
     // 创建设备弹窗
     function openCreateModal() {
-      var name = el('input', { cls: 'input', attrs: { placeholder: '例如：机房-01 / 我的 Mac', maxlength: '60' } });
+      var name = el('input', { cls: 'input', attrs: { placeholder: '例如：机房-01 / 我的 Mac', maxlength: '60', 'aria-label': '设备显示名' } });
       // 平台由设备端连接时上报，创建时无需填写（后端 plat 置空）
       var err = el('div', { cls: 'form-error' });
+      var submitBtn = null;
       async function submit() {
         if (!name.value.trim()) { err.textContent = '请填写显示名。'; return; }
         if (isNameTaken(name.value.trim(), null)) { err.textContent = '该显示名已被使用。'; return; }
         err.textContent = '';
-        var btn = el('button', { cls: 'btn btn-primary', text: '创建中…' }); btn.disabled = true;
+        submitBtn.disabled = true; submitBtn.textContent = '创建中…';
         try {
           var res = await api('/api/admin/devices', { method: 'POST', body: { display_name: name.value.trim(), platform: '' } });
           if (res.data && (res.data.device_id || res.data.key)) {
@@ -363,7 +447,7 @@
             toast('设备已创建');
           } else { err.textContent = res.data.error || '创建失败'; }
         } catch (e) { if (e.message !== 'unauthorized') err.textContent = '网络异常，请重试'; }
-        finally { btn.disabled = false; btn.textContent = '创建'; }
+        finally { submitBtn.disabled = false; submitBtn.textContent = '创建'; }
       }
       var modal = modalShell('创建设备', [
         el('div', { cls: 'field' }, [el('label', { cls: 'label', text: '显示名' }), name]),
@@ -373,13 +457,14 @@
         el('button', { cls: 'btn btn-ghost', text: '取消', on: { click: closeModal } }),
         el('button', { cls: 'btn btn-primary', text: '创建', on: { click: submit } })
       ]);
+      submitBtn = modal.querySelector('.modal-foot .btn-primary');
       openModal(modal);
       name.focus();
     }
 
     // 修改设备显示名弹窗
     function openRenameModal(id, oldName) {
-      var name = el('input', { cls: 'input', attrs: { placeholder: '输入新的显示名', maxlength: '60' } });
+      var name = el('input', { cls: 'input', attrs: { placeholder: '输入新的显示名', maxlength: '60', 'aria-label': '新的设备显示名' } });
       var old = textOf(oldName) === '—' ? '' : String(oldName);
       var err = el('div', { cls: 'form-error' });
       name.value = old;
@@ -417,14 +502,24 @@
     var currentRole = '';
     var currentUserId = null;  // 当前登录用户 id；token 的查看/重置仅允许本人
 
+    var currentUsers = [];
     async function loadUsers() {
       var tbody = $('users-body'); if (!tbody) return;
-      clear(tbody);
+      tbody.setAttribute('aria-busy', 'true');
+      $('users-error').classList.add('hidden');
+      if (!currentUsers.length) {
+        clear(tbody);
+        tbody.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '6', role: 'status' } }, [
+          el('span', { cls: 'spinner' }), document.createTextNode('正在加载用户…')
+        ])]));
+      }
       try {
         var res = await api('/api/admin/users');
-        if (!res.ok) { tbody.appendChild(el('tr', {}, [el('td', { text: res.data.error || '加载失败', attrs: { colspan: '6' } })])); return; }
+        if (!res.ok) throw new Error((res.data && res.data.error) || '用户列表加载失败');
         var users = res.data.users || [];
-        if (!users.length) { tbody.appendChild(el('tr', {}, [el('td', { text: '暂无用户', attrs: { colspan: '6' } })])); return; }
+        currentUsers = users;
+        clear(tbody);
+        if (!users.length) { tbody.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { text: '暂无用户', attrs: { colspan: '6' } })])); return; }
         users.forEach(function (u) {
           var acts = el('div', { cls: 'row gap-2' });
           // 凭证隔离：控制 Token 的查看/重置仅限本人，超管也不能操作他人 token。
@@ -458,7 +553,16 @@
             el('td', {}, [acts])
           ]));
         });
-      } catch (e) { if (e.message !== 'unauthorized') toast('用户列表加载失败', 'err'); }
+      } catch (e) {
+        if (e.message === 'unauthorized') return;
+        if (!currentUsers.length) {
+          clear(tbody);
+          tbody.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { text: '用户列表暂不可用，请重试', attrs: { colspan: '6' } })]));
+        }
+        $('users-error-text').textContent = e.message || '网络异常，请重试';
+        $('users-error').classList.remove('hidden');
+        toast('用户列表加载失败', 'err');
+      } finally { tbody.removeAttribute('aria-busy'); }
     }
 
     function copyTextFallback(text, okMsg) {
@@ -511,8 +615,8 @@
     }
 
     function openUserCreateModal() {
-      var name = el('input', { cls: 'input', attrs: { type: 'email', placeholder: '登录邮箱', maxlength: '254', autocomplete: 'off' } });
-      var pwd = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '密码（12 位起，含大小写/数字/符号）', autocomplete: 'new-password' } });
+      var name = el('input', { cls: 'input', attrs: { type: 'email', placeholder: '登录邮箱', maxlength: '254', autocomplete: 'off', 'aria-label': '登录邮箱' } });
+      var pwd = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '密码（12 位起，含大小写/数字/符号）', autocomplete: 'new-password', 'aria-label': '新用户密码' } });
       // 新建用户一律普通用户（服务端强制），无需展示角色字段
       var err = el('div', { cls: 'form-error hidden' });
       async function submit() {
@@ -553,7 +657,7 @@
     }
 
     function setUserPassword(u) {
-      var pwd = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '新密码（12 位起）', autocomplete: 'new-password' } });
+      var pwd = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '新密码（12 位起）', autocomplete: 'new-password', 'aria-label': '用户新密码' } });
       var err = el('div', { cls: 'form-error hidden' });
       function submit() {
         err.classList.add('hidden'); err.textContent = '';
@@ -589,9 +693,9 @@
 
     /* ---------- 修改密码 ---------- */
     function openChangePwdModal() {
-      var oldPwd = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '当前密码', autocomplete: 'current-password' } });
-      var newPwd = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '新密码（12 位起）', autocomplete: 'new-password' } });
-      var confirm = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '再次输入新密码', autocomplete: 'new-password' } });
+      var oldPwd = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '当前密码', autocomplete: 'current-password', 'aria-label': '当前密码' } });
+      var newPwd = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '新密码（12 位起）', autocomplete: 'new-password', 'aria-label': '新密码' } });
+      var confirm = el('input', { cls: 'input', attrs: { type: 'password', placeholder: '再次输入新密码', autocomplete: 'new-password', 'aria-label': '确认新密码' } });
       var err = el('div', { cls: 'form-error hidden' });
       function submit() {
         err.classList.add('hidden'); err.textContent = '';
@@ -637,8 +741,20 @@
       });
     }
     async function loadOverview() {
+      var body = $('recent-logs-body');
+      var hadRows = body.children.length > 0;
+      body.setAttribute('aria-busy', 'true');
+      $('overview-error').classList.add('hidden');
+      if (!hadRows) {
+        clear(body);
+        body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '5', role: 'status' } }, [
+          el('span', { cls: 'spinner' }), document.createTextNode('正在加载概览…')
+        ])]));
+      }
       try {
-        var res = await api('/api/overview'); var d = res.data || {};
+        var res = await api('/api/overview');
+        if (!res.ok) throw new Error((res.data && res.data.error) || '概览加载失败');
+        var d = res.data || {};
         $('stat-total').textContent = (d.devices_total == null ? '—' : d.devices_total);
         $('stat-online').textContent = (d.devices_online == null ? '—' : d.devices_online);
         $('stat-tasks').textContent = (d.tasks_today == null ? '—' : d.tasks_today);
@@ -653,39 +769,116 @@
         }
         $('stat-login').textContent = ll ? fmtTs(ll) : '—';
         renderRecent(Array.isArray(d.last_logs) ? d.last_logs : []);
-      } catch (e) { if (e.message !== 'unauthorized') toast('概览加载失败', 'err'); }
+      } catch (e) {
+        if (e.message === 'unauthorized') return;
+        if (!hadRows) {
+          clear(body);
+          body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { text: '概览加载失败，请重试', attrs: { colspan: '5' } })]));
+        }
+        $('overview-error-text').textContent = e.message || '网络异常，请重试';
+        $('overview-error').classList.remove('hidden');
+        toast('概览加载失败', 'err');
+      } finally { body.removeAttribute('aria-busy'); }
     }
 
     /* ---------- 视图：设备管理 ---------- */
-    async function loadDevices() {
+    var devicesLoaded = false;
+    function clearDeviceFilters() {
+      $('device-search').value = '';
+      $('device-status-filter').value = 'all';
+      renderDevices();
+      $('device-search').focus();
+    }
+    function renderDevices() {
+      if (!devicesLoaded) return;
       var body = $('devices-body'); clear(body);
-      body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7' } }, [el('span', { cls: 'spinner' })])]));
-      try {
-        var res = await api('/api/devices'); var list = (res.data && res.data.devices) || [];
-        currentDevices = list;
-        clear(body);
-        if (!list.length) { body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7' }, text: '暂无设备，点击右上角「创建设备」开始' })])); return; }
-        list.forEach(function (d) {
-          var actions = el('div', { cls: 'table-actions' });
-          actions.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '改名',
-            on: { click: function () { openRenameModal(d.device_id, d.display_name); } } }));
-          actions.appendChild(el('button', {
-            cls: 'btn btn-ghost btn-sm', text: d.enabled ? '禁用' : '启用',
-            on: { click: function () { toggleDevice(d.device_id, !d.enabled); } }
-          }));
-          actions.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '重置私钥', on: { click: function () { resetKey(d.device_id); } } }));
-          actions.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '删除', on: { click: function () { deleteDevice(d.device_id, d.display_name); } } }));
-          body.appendChild(el('tr', {}, [
-            el('td', { text: textOf(d.display_name) }),
-            el('td', { cls: 'mono truncate', text: textOf(d.device_id), title: textOf(d.device_id) }),
-            el('td', {}, [badge(textOf(d.platform), 'badge-plain')]),
-            el('td', {}, [statusNode(d.status)]),
-            el('td', { cls: 'nowrap text-2', text: fmtTs(d.last_seen) }),
-            el('td', {}, [d.enabled ? badge('已启用', 'badge-success') : badge('已禁用', 'badge-danger')]),
-            el('td', {}, [actions])
-          ]));
+      var query = ($('device-search').value || '').trim().toLowerCase();
+      var status = $('device-status-filter').value || 'all';
+      var filtered = currentDevices.filter(function (d) {
+        d = d || {};
+        if (status === 'online' && d.status !== 'online') return false;
+        if (status === 'offline' && d.status === 'online') return false;
+        if (!query) return true;
+        return [d.display_name, d.device_id, d.platform].some(function (v) {
+          return String(v == null ? '' : v).toLowerCase().indexOf(query) >= 0;
         });
-      } catch (e) { if (e.message !== 'unauthorized') toast('设备列表加载失败', 'err'); }
+      });
+      var online = currentDevices.filter(function (d) { return d && d.status === 'online'; }).length;
+      var enabled = currentDevices.filter(function (d) { return d && d.enabled; }).length;
+      $('device-stat-total').textContent = String(currentDevices.length);
+      $('device-stat-online').textContent = String(online);
+      $('device-stat-enabled').textContent = String(enabled);
+      var filtering = !!query || status !== 'all';
+      $('device-result-count').textContent = filtering
+        ? '显示 ' + filtered.length + ' / 共 ' + currentDevices.length + ' 台设备'
+        : '共 ' + currentDevices.length + ' 台设备';
+      $('device-clear-filters').disabled = !filtering;
+      if (!filtered.length) {
+        var noDevices = currentDevices.length === 0;
+        body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7' } }, [
+          el('div', { cls: 'empty-state' }, [
+            el('strong', { text: noDevices ? '还没有设备' : '没有匹配的设备' }),
+            el('span', { text: noDevices ? '创建设备并将凭证填入设备端，即可开始远程连接。' : '请尝试其他关键词或状态条件。' }),
+            el('button', {
+              cls: 'btn btn-ghost', text: noDevices ? '创建设备' : '清除条件', type: 'button',
+              on: { click: function () { if (noDevices) openCreateModal(); else clearDeviceFilters(); } }
+            })
+          ])
+        ])]));
+        return;
+      }
+      filtered.forEach(function (d) {
+        var actions = el('div', { cls: 'table-actions' });
+        actions.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '改名',
+          on: { click: function () { openRenameModal(d.device_id, d.display_name); } } }));
+        actions.appendChild(el('button', {
+          cls: 'btn btn-ghost btn-sm', text: d.enabled ? '禁用' : '启用',
+          on: { click: function () { toggleDevice(d.device_id, !d.enabled); } }
+        }));
+        actions.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '重置私钥', on: { click: function () { resetKey(d.device_id); } } }));
+        actions.appendChild(el('button', { cls: 'btn btn-ghost btn-sm', text: '删除', on: { click: function () { deleteDevice(d.device_id, d.display_name); } } }));
+        body.appendChild(el('tr', {}, [
+          el('td', { text: textOf(d.display_name) }),
+          el('td', { cls: 'mono truncate', text: textOf(d.device_id), title: textOf(d.device_id) }),
+          el('td', {}, [badge(textOf(d.platform), 'badge-plain')]),
+          el('td', {}, [statusNode(d.status)]),
+          el('td', { cls: 'nowrap text-2', text: fmtTs(d.last_seen) }),
+          el('td', {}, [d.enabled ? badge('已启用', 'badge-success') : badge('已禁用', 'badge-danger')]),
+          el('td', {}, [actions])
+        ]));
+      });
+    }
+    async function loadDevices() {
+      var body = $('devices-body');
+      body.setAttribute('aria-busy', 'true');
+      $('device-error').classList.add('hidden');
+      if (!devicesLoaded || !currentDevices.length) {
+        clear(body);
+        body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7', role: 'status' } }, [
+          el('span', { cls: 'spinner' }), document.createTextNode('正在加载设备…')
+        ])]));
+      } else { $('device-result-count').textContent = '刷新中…'; }
+      try {
+        var res = await api('/api/devices');
+        if (!res.ok) throw new Error((res.data && res.data.error) || '设备列表加载失败');
+        var list = (res.data && res.data.devices) || [];
+        currentDevices = list;
+        devicesLoaded = true;
+        renderDevices();
+      } catch (e) {
+        if (e.message === 'unauthorized') return;
+        if (devicesLoaded && currentDevices.length) {
+          renderDevices();
+          $('device-result-count').textContent = '刷新失败，显示上次结果';
+        } else {
+          clear(body);
+          body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { text: '设备列表暂不可用，请重试', attrs: { colspan: '7' } })]));
+          $('device-result-count').textContent = '加载失败';
+        }
+        $('device-error-text').textContent = e.message || '网络异常，请重试';
+        $('device-error').classList.remove('hidden');
+        toast('设备列表加载失败', 'err');
+      } finally { body.removeAttribute('aria-busy'); }
     }
     async function toggleDevice(id, enabled) {
       try {
@@ -712,7 +905,7 @@
     }
 
     /* ---------- 视图：操作日志 ---------- */
-    var logPage = 1, logPages = 1;
+    var logPage = 1, logPages = 1, logRows = [];
     function curMonth() { var d = new Date(); return String(d.getFullYear()) + String(d.getMonth() + 1).padStart(2, '0'); }
     function dayValue() { return ($('log-day').value || '').trim(); }
     function scopeLabel() {
@@ -720,9 +913,24 @@
       if (day) return day;                       // 精确到天
       return '整月 ' + curMonth();               // 留空=当前整月
     }
-    async function loadLogs() {
-      var body = $('logs-body'); clear(body);
-      body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7' } }, [el('span', { cls: 'spinner' })])]));
+    async function loadLogs(preserve) {
+      var body = $('logs-body');
+      var keepRows = preserve !== false && logRows.length > 0;
+      body.setAttribute('aria-busy', 'true');
+      $('logs-error').classList.add('hidden');
+      var requestScope = scopeLabel();
+      $('log-result-scope').textContent = requestScope;
+      $('log-result-total').textContent = keepRows ? '查询中…' : '加载中…';
+      if (!keepRows) {
+        logRows = [];
+        clear(body);
+        body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7', role: 'status' } }, [
+          el('span', { cls: 'spinner' }), document.createTextNode('正在加载日志…')
+        ])]));
+      }
+      var searchBtn = $('btn-search');
+      searchBtn.disabled = true; searchBtn.textContent = '查询中…';
+      $('page-prev').disabled = true; $('page-next').disabled = true; $('page-goto-btn').disabled = true;
       var q = new URLSearchParams();
       var day = dayValue();
       if (day) q.set('day', day);                 // 选了具体日期：按天精确过滤
@@ -732,10 +940,13 @@
       q.set('result', $('f-result').value);
       q.set('page', String(logPage));
       try {
-        var res = await api('/api/logs?' + q.toString()); var d = res.data || {};
+        var res = await api('/api/logs?' + q.toString());
+        if (!res.ok) throw new Error((res.data && res.data.error) || '日志加载失败');
+        var d = res.data || {};
         var rows = d.rows || [];
+        logRows = rows;
         clear(body);
-        if (!rows.length) { body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7' }, text: '该条件下暂无日志' })])); }
+        if (!rows.length) { body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { attrs: { colspan: '7' }, text: '该条件下暂无日志，请调整日期或筛选条件。' })])); }
         rows.forEach(function (r) {
           body.appendChild(el('tr', {}, [
             el('td', { cls: 'nowrap text-2', text: fmtTs(r.ts) }),
@@ -748,14 +959,33 @@
           ]));
         });
         logPages = Math.max(1, Number(d.pages) || 1);
-        if (logPage > logPages) { logPage = logPages; loadLogs(); return; }
-        $('pager-info').textContent = '共 ' + (d.total || 0) + ' 条记录 · ' + scopeLabel();
+        if (logPage > logPages) { logPage = logPages; return await loadLogs(keepRows); }
+        $('pager-info').textContent = '共 ' + (d.total || 0) + ' 条记录 · ' + requestScope;
+        $('log-result-scope').textContent = requestScope;
+        $('log-result-total').textContent = '共 ' + (d.total || 0) + ' 条记录';
         $('page-indicator').textContent = logPage + ' / ' + logPages;
         $('page-prev').disabled = logPage <= 1;
         $('page-next').disabled = logPage >= logPages;
+        $('page-goto-btn').disabled = false;
         var goto = $('page-goto');
         if (goto) { goto.max = String(logPages); goto.value = String(logPage); goto.placeholder = String(logPages); }
-      } catch (e) { if (e.message !== 'unauthorized') toast('日志加载失败', 'err'); }
+      } catch (e) {
+        if (e.message === 'unauthorized') return;
+        if (!logRows.length) {
+          clear(body);
+          body.appendChild(el('tr', { cls: 'empty-row' }, [el('td', { text: '日志加载失败，请重试', attrs: { colspan: '7' } })]));
+        }
+        $('log-result-total').textContent = logRows.length ? '刷新失败，显示上次结果' : '加载失败';
+        $('logs-error-text').textContent = e.message || '网络异常，请重试';
+        $('logs-error').classList.remove('hidden');
+        toast('日志加载失败', 'err');
+      } finally {
+        body.removeAttribute('aria-busy');
+        searchBtn.disabled = false; searchBtn.textContent = '查询';
+        $('page-prev').disabled = logPage <= 1;
+        $('page-next').disabled = logPage >= logPages;
+        $('page-goto-btn').disabled = false;
+      }
     }
 
     /* ---------- 视图：下载中心（纯静态内容 + UA 检测，不调 API） ---------- */
@@ -858,7 +1088,7 @@
       var detected = detectPlatform();
       var bar = $('dl-detect-bar');
       if (bar) bar.textContent = detected
-        ? '已检测到你的系统为 ' + PLATFORM_LABEL[detected] + '，对应设备端已置顶并高亮；其他平台包可按需下载。'
+        ? '已检测到你的系统为 ' + PLATFORM_LABEL[detected] + '，首选设备端已置顶并高亮；其他版本与平台包可按需下载。'
         : '未能识别你的系统，请按实际平台自行选择下方安装包。';
 
       var grid = $('download-grid');
@@ -868,7 +1098,12 @@
         if (detected) list.sort(function (a, b) {
           return (b.platform === detected ? 1 : 0) - (a.platform === detected ? 1 : 0);
         });
-        list.forEach(function (item) { grid.appendChild(downloadCard(item, item.platform === detected)); });
+        var recommendedUsed = false;
+        list.forEach(function (item) {
+          var recommended = !!detected && item.platform === detected && !recommendedUsed;
+          if (recommended) recommendedUsed = true;
+          grid.appendChild(downloadCard(item, recommended));
+        });
       }
       var nasBox = $('download-nas');
       if (nasBox) { clear(nasBox); nasBox.appendChild(docCard(NAS_DOWNLOAD)); }
@@ -881,15 +1116,20 @@
     var loaded = {};
     var currentView = 'overview';
     function loadView(name) {
-      if (name === 'overview') loadOverview();
-      else if (name === 'devices') loadDevices();
-      else if (name === 'logs') loadLogs();
-      else if (name === 'users') loadUsers();
+      if (name === 'overview') return loadOverview();
+      else if (name === 'devices') return loadDevices();
+      else if (name === 'logs') return loadLogs();
+      else if (name === 'users') return loadUsers();
       else if (name === 'downloads') renderDownloads();
     }
     function switchView(name) {
       currentView = name;
-      document.querySelectorAll('.nav-item').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-view') === name); });
+      document.querySelectorAll('.nav-item').forEach(function (b) {
+        var active = b.getAttribute('data-view') === name;
+        b.classList.toggle('active', active);
+        if (active) b.setAttribute('aria-current', 'page');
+        else b.removeAttribute('aria-current');
+      });
       ['overview', 'devices', 'logs', 'users', 'downloads'].forEach(function (v) { $('view-' + v).classList.toggle('hidden', v !== name); });
       $('bar-title').textContent = TITLES[name] || '';
       if (!loaded[name]) { loaded[name] = true; loadView(name); }
@@ -928,7 +1168,14 @@
       $('btn-create').addEventListener('click', openCreateModal);
       $('btn-user-create').addEventListener('click', openUserCreateModal);
       $('btn-change-pwd').addEventListener('click', openChangePwdModal);
-      $('btn-search').addEventListener('click', function () { logPage = 1; loadLogs(); });
+      $('device-search').addEventListener('input', renderDevices);
+      $('device-status-filter').addEventListener('change', renderDevices);
+      $('device-clear-filters').addEventListener('click', clearDeviceFilters);
+      $('device-retry').addEventListener('click', loadDevices);
+      $('overview-retry').addEventListener('click', loadOverview);
+      $('users-retry').addEventListener('click', loadUsers);
+      $('logs-retry').addEventListener('click', function () { loadLogs(false); });
+      $('btn-search').addEventListener('click', function () { logPage = 1; loadLogs(false); });
       $('page-prev').addEventListener('click', function () { if (logPage > 1) { logPage--; loadLogs(); } });
       $('page-next').addEventListener('click', function () { if (logPage < logPages) { logPage++; loadLogs(); } });
       function gotoPage() {
@@ -940,19 +1187,19 @@
       }
       $('page-goto-btn').addEventListener('click', gotoPage);
       $('page-goto').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); gotoPage(); } });
-      $('btn-refresh').addEventListener('click', function () {
+      $('btn-refresh').addEventListener('click', async function () {
         var b = $('btn-refresh');
         if (b.disabled) return;
-        // 图标按钮：loading 态用 class + disabled 表达，不再改写按钮文案
+        // 图标按钮：loading 态用 class + disabled 表达，等当前视图请求结束再恢复
         b.disabled = true;
         b.classList.add('is-loading');
         b.title = '刷新中…';
-        loadView(currentView);
-        setTimeout(function () {
+        try { await loadView(currentView); }
+        finally {
           b.disabled = false;
           b.classList.remove('is-loading');
           b.title = '刷新当前视图';
-        }, 500);
+        }
       });
       $('btn-logout').addEventListener('click', async function () {
         try { await api('/api/logout', { method: 'POST' }); } catch (e) {}
@@ -970,19 +1217,7 @@
         node.textContent = endpoint;
         node.title = endpoint;
         copyBtn.addEventListener('click', function () {
-          function done() { toast('WebSocket 地址已复制'); }
-          function fallback() {
-            var ta = document.createElement('textarea');
-            ta.value = endpoint;
-            ta.style.position = 'fixed'; ta.style.opacity = '0';
-            document.body.appendChild(ta); ta.select();
-            try { document.execCommand('copy'); done(); }
-            catch (e) { toast('复制失败，请手动选中复制', 'err'); }
-            document.body.removeChild(ta);
-          }
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(endpoint).then(done).catch(fallback);
-          } else { fallback(); }
+          copyText(endpoint, 'WebSocket 地址已复制');
         });
       })();
 
